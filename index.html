@@ -916,9 +916,9 @@
 }
 
 .therm-logo {
-    width: 50px; 
+    width: 100px; /* <--- CHANGED TO 100px (Adjust this number to resize) */
     height: auto;
-    filter: grayscale(100%); /* Thermal printers print black/white */
+    filter: grayscale(100%); 
     margin-bottom: 5px;
 }
 
@@ -3829,9 +3829,10 @@ function createAndPrintInvoice(isReminder = false) {
                 }
                 
                 /* Layout Helpers from Step 1 */
-                .therm-header { text-align: center; border-bottom: 2px dashed #000; margin-bottom: 10px; padding-bottom: 10px;}
-                .therm-logo { width: 40px; filter: grayscale(100%); }
-                .therm-title { font-weight: 800; font-size: 14px; margin-top:5px; }
+.therm-header { text-align: center; border-bottom: 2px dashed #000; margin-bottom: 10px; padding-bottom: 10px;}
+.therm-logo { width: 100px; filter: grayscale(100%); } /* <--- CHANGED TO 100px */
+.therm-title { font-weight: 800; font-size: 14px; margin-top:5px; }
+
                 .therm-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
                 .therm-divider { border-top: 1px dashed #000; margin: 8px 0; }
                 .therm-points-box { border: 1px solid #000; padding: 5px; margin: 10px 0; text-align: center; font-size: 11px; }
@@ -4876,5 +4877,3 @@ document.getElementById('fileRecoverInput').onchange = (event) => {
 </script>
 </body>
 </html>
-
-
