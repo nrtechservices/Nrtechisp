@@ -3708,40 +3708,46 @@ function createAndSendMessengerInvoice(isReminder = false) {
 
 // --- ADD THIS NEW HELPER FUNCTION ---
 
-function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
-    if (amountPaid <= 0 || monthlyFee <= 0) return "N/A";
-    
-    // Calculate how many months the payment covers
-    // We use Math.floor roughly, but handle remainders as partial
-    const monthsCount = Math.floor(amountPaid / monthlyFee);
-    
-    if (monthsCount < 1) return "Partial Payment";
+// --- STEP 1: IMPROVED MONTH CALCULATOR ---
+function calculateMonthsCovered(startDateIso, amount, monthlyFee) {
+    // Safety check
+    if (!amount || amount <= 0 || !monthlyFee || monthlyFee <= 0) return "N/A";
 
-    let dateCursor = new Date(startDateIso);
+    // 1. Calculate how many months this amount represents
+    // We use Math.round to handle slight floating point variances, 
+    // assuming payments are generally in multiples of the fee.
+    let count = Math.round(amount / monthlyFee);
+    
+    // If partial payment (less than 1 month fee), treat as 1 month (the current one)
+    if (count < 1) count = 1;
+
+    // 2. Start looping from the provided start date
+    let current = new Date(startDateIso);
     let monthNames = [];
     
-    // Formatting options (e.g., "Oct 2023")
-    const opts = { month: 'short', year: '2-digit' };
+    // Formatting: "Nov 2023"
+    const options = { month: 'short', year: 'numeric' };
 
-    for (let i = 0; i < monthsCount; i++) {
-        // Add name to list
-        monthNames.push(dateCursor.toLocaleDateString('en-US', opts));
+    for (let i = 0; i < count; i++) {
+        monthNames.push(current.toLocaleDateString('en-US', options));
         
-        // Move to next month
-        dateCursor.setMonth(dateCursor.getMonth() + 1);
+        // Move to the next month for the next iteration
+        current.setMonth(current.getMonth() + 1);
     }
-    
+
     return monthNames.join(", ");
 }
 
 
-// --- REPLACE YOUR OLD generateInvoiceHtml WITH THIS NEW VERSION ---
+// --- STEP 2: SMART INVOICE GENERATOR ---
 function generateInvoiceHtml(acc, isReminder = false) {
     const lastPayment = acc.payments.length ? acc.payments[acc.payments.length - 1] : null;
     const today = new Date();
     const planFee = acc.plan.fee;
     
-    // 1. Setup Dates, Ref, Method
+    // --- A. DATA PREPARATION ---
+    
+    // 1. Determine Display Date and Reference
     const displayDate = (!isReminder && lastPayment) 
         ? new Date(lastPayment.date).toLocaleDateString() 
         : today.toLocaleDateString();
@@ -3750,129 +3756,91 @@ function generateInvoiceHtml(acc, isReminder = false) {
         ? lastPayment.referenceNumber
         : "REMINDER"; 
 
-    // If reminder, method is "Unpaid", else show the actual method used
     const payMethod = (!isReminder && lastPayment && lastPayment.method) 
         ? lastPayment.method 
-        : (isReminder ? "Pending Payment" : "Cash");
+        : (isReminder ? "Pending" : "Cash");
 
-    // ============================================================
-    // LOGIC: GENERATE LINE ITEMS
-    // ============================================================
-    let invoiceItemsHtml = ''; // This will hold the rows of items
+    // 2. Determine Financials (Amount to Show)
     let mainAmount = 0;
-    let label = "";
-    let coverageText = "";
-    let warningHtml = "";
-
-    if (!isReminder && lastPayment) {
-        // --- SCENARIO A: OFFICIAL RECEIPT (Existing Logic) ---
-        label = "AMOUNT PAID";
-        mainAmount = Number(lastPayment.amount);
-        
-        // Show Standard Plan Fee
-        invoiceItemsHtml += `
-            <div class="therm-row">
-                <span>Internet Service Fee</span>
-                <span>₱${planFee.toFixed(2)}</span>
-            </div>
-        `;
-
-        if (lastPayment.billingMonth) {
-            coverageText = lastPayment.billingMonth;
-        } else {
-            coverageText = calculateMonthsCovered(acc.nextDue, lastPayment.amount, planFee);
-        }
-
-    } else {
-        // --- SCENARIO B: PAYMENT REMINDER (New Logic) ---
-        label = "TOTAL BALANCE DUE";
-        
-        // 1. Check if they actually owe money
-        if (acc.excessLackingBalance >= 0) {
-            // No debt
-            mainAmount = 0;
-            invoiceItemsHtml += `
-                <div class="therm-row" style="justify-content:center; padding:10px 0;">
-                    <em>No Balance Due</em>
-                </div>`;
-            coverageText = "Account is updated";
-        } else {
-            // 2. They have debt. Calculate which months based on Next Due Date.
+    let mainLabel = "";
+    
+    if (isReminder) {
+        // REMINDER MODE: Show Balance (Debt)
+        // If balance is negative (e.g. -500), it means they owe money.
+        // If balance is positive, they owe 0 (technically), but we show the next month's fee.
+        if (acc.excessLackingBalance < 0) {
             mainAmount = Math.abs(acc.excessLackingBalance);
-            
-            let startDate = new Date(acc.nextDue); // Start from when they stopped paying
-            let endDate = new Date(); // Stop at today
-            
-            // Safety: If nextDue is weirdly far in future, don't run loop
-            if (startDate > endDate) {
-                invoiceItemsHtml += `<div class="therm-row"><span>Advance Payment</span><span>-</span></div>`;
-            } else {
-                // LOOP: Generate a row for every month from NextDue until Today
-                let loopCount = 0;
-                while (startDate < endDate && loopCount < 12) { // Cap at 12 to prevent infinite loops on bad data
-                    
-                    const monthName = startDate.toLocaleDateString('default', { month: 'long', year: 'numeric' });
-                    
-                    invoiceItemsHtml += `
-                        <div class="therm-row">
-                            <span>Bill: ${monthName}</span>
-                            <span>₱${planFee.toFixed(2)}</span>
-                        </div>
-                    `;
+        } else {
+            mainAmount = planFee; // Just remind them of the regular fee
+        }
+        mainLabel = "TOTAL DUE";
+    } else {
+        // RECEIPT MODE: Show Amount Paid
+        mainAmount = lastPayment ? Number(lastPayment.amount) : 0;
+        mainLabel = "AMOUNT PAID";
+    }
 
-                    // Move to next month
-                    startDate.setMonth(startDate.getMonth() + 1);
-                    loopCount++;
-                }
-                
-                // If there's a partial balance discrepancy (e.g. they paid half a month previously), add an adjustment row
-                // This ensures the items add up visually to the Main Amount
-                const totalProjected = loopCount * planFee;
-                if (mainAmount !== totalProjected) {
-                     const diff = mainAmount - totalProjected;
-                     if(Math.abs(diff) > 1) { // Only show if diff is significant
-                         invoiceItemsHtml += `
-                            <div class="therm-row" style="color: ${diff > 0 ? 'red' : 'green'}; font-size:10px; font-style:italic;">
-                                <span>Balance Adjustment</span>
-                                <span>${diff > 0 ? '+' : ''}₱${diff.toFixed(2)}</span>
-                            </div>
-                        `;
-                     }
-                }
-            }
+    // --- B. COVERAGE LOGIC (THE FIX) ---
+    
+    let coverageText = "";
+    let statusHtml = "";
 
-            // Warning Box for Reminders
-            if (mainAmount > planFee) {
-                warningHtml = `
-                <div style="border: 2px solid red; background: #ffe6e6; color: red; padding: 5px; text-align: center; font-weight: bold; font-size: 11px; margin: 10px 0;">
-                    ⚠ WARNING: OVERDUE ACCOUNT<br>
-                    Please settle immediately to avoid disconnection.
-                </div>`;
-            } else {
-                 warningHtml = `
-                <div style="border: 1px solid #d49a37; background: #fff8e1; color: #b87333; padding: 5px; text-align: center; font-weight: bold; font-size: 11px; margin: 10px 0;">
-                    Please pay before due date.
-                </div>`;
-            }
+    if (isReminder) {
+        // === LOGIC FOR REMINDER ===
+        // The 'nextDue' field in the account ALWAYS points to the oldest unpaid month.
+        // If Nov is paid, nextDue is automatically Dec.
+        
+        const nextDueObj = new Date(acc.nextDue);
+        
+        // 1. If they owe money (Negative Balance)
+        if (acc.excessLackingBalance < 0) {
+            // Calculate specific months based on debt amount
+            coverageText = calculateMonthsCovered(acc.nextDue, Math.abs(acc.excessLackingBalance), planFee);
             
-            coverageText = `From ${new Date(acc.nextDue).toLocaleDateString()}`;
+            statusHtml = `
+            <div style="border: 2px solid red; background: #ffe6e6; color: red; padding: 5px; text-align: center; font-weight: bold; font-size: 11px; margin: 10px 0;">
+                ⚠ PAYMENT OVERDUE
+            </div>`;
+        } 
+        // 2. If they are fully paid / Up to date
+        else {
+            // Just show the upcoming month
+            coverageText = nextDueObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+            
+            statusHtml = `
+            <div style="text-align:center; color: var(--accent-2); font-weight:bold; margin: 5px 0;">
+                UPCOMING BILL
+            </div>`;
+        }
+    } 
+    else {
+        // === LOGIC FOR RECEIPT (ADVANCE) ===
+        if (lastPayment) {
+            // If the user manually typed a specific month in Quick Pay, use that
+            if (lastPayment.billingMonth && lastPayment.billingMonth !== "N/A") {
+                coverageText = lastPayment.billingMonth;
+            } else {
+                // Otherwise, calculate coverage automatically.
+                // We assume the payment covers starting from the Invoice Date.
+                // If the amount is 1500 and fee is 500, this function will return "Nov, Dec, Jan".
+                coverageText = calculateMonthsCovered(lastPayment.date, lastPayment.amount, planFee);
+            }
         }
     }
 
-    // ============================================================
-    // LOGIC: EXTRA CHARGES & DISCOUNTS
-    // ============================================================
-    // We only add these to the visual list.
+    // --- C. EXTRA ITEMS (Charges/Discounts) ---
+    // Only show extras that match the current month context to keep receipt clean
+    let extraItemsHtml = '';
     const invoiceDateStr = (!isReminder && lastPayment) ? lastPayment.date : today.toISOString().slice(0, 10);
-    const invoiceMonth = invoiceDateStr.slice(0, 7); 
-    
+    const invoiceMonth = invoiceDateStr.slice(0, 7); // "2023-11"
+
     if(acc.charges) {
         acc.charges.forEach(c => {
-            // Show charges if they match the month OR if it's a reminder (assuming unpaid)
+            // Show if dates match OR if it's a reminder and they have debt
             if(c.date.startsWith(invoiceMonth) || (isReminder && acc.excessLackingBalance < 0)) {
-                invoiceItemsHtml += `
+                extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-error);">
-                    <span>[+] ${c.note || 'Extra Charge'}</span>
+                    <span>[+] ${c.note || 'Charge'}</span>
                     <span>₱${Number(c.amount).toFixed(2)}</span>
                 </div>`;
             }
@@ -3882,7 +3850,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
     if(acc.discounts) {
         acc.discounts.forEach(d => {
             if(d.date.startsWith(invoiceMonth)) {
-                invoiceItemsHtml += `
+                extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-success);">
                     <span>[-] ${d.note || 'Discount'}</span>
                     <span>-₱${Number(d.amount).toFixed(2)}</span>
@@ -3891,10 +3859,9 @@ function generateInvoiceHtml(acc, isReminder = false) {
         });
     }
 
-    // ---------------------------------------------
-    // BUILD THE HTML
-    // ---------------------------------------------
+    // --- D. RENDER HTML ---
     const pts = acc.points;
+    
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -3914,33 +3881,40 @@ function generateInvoiceHtml(acc, isReminder = false) {
 
         <div class="therm-divider"></div>
 
-        <div style="font-weight:bold; text-align:center; margin: 10px 0;">
+        <div style="font-weight:bold; text-align:center; margin: 10px 0; font-size: 14px;">
             ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
         </div>
 
-        <div class="therm-row" style="border-bottom: 1px solid #000; padding-bottom: 2px; margin-bottom: 5px;">
+        ${statusHtml}
+
+        <div class="therm-row">
             <span>Description</span>
             <span>Amount</span>
         </div>
         
-        ${invoiceItemsHtml} 
+        <div class="therm-row">
+            <span>Internet Service Fee</span>
+            <span>₱${planFee.toFixed(2)}</span>
+        </div>
+
+        ${extraItemsHtml}
 
         <div class="therm-divider"></div>
 
-        <div class="therm-row" style="font-size: 14px; font-weight: 800;">
-            <span>${label}:</span>
+        <div class="therm-row" style="font-size: 16px; font-weight: 800;">
+            <span>${mainLabel}:</span>
             <span>₱${mainAmount.toFixed(2)}</span>
         </div>
 
-        ${warningHtml}
-
-        <div style="margin-top: 10px; font-size: 11px;">
+        <div style="margin-top: 15px; border: 1px dashed #000; padding: 5px;">
             <div class="therm-row">
-                <span>Coverage:</span>
-                <strong>${coverageText}</strong>
+                <span style="font-weight:700;">Coverage:</span>
             </div>
-            <div class="therm-row">
-                <span>Payment Method:</span>
+            <div style="font-size: 11px; margin-top: 2px;">
+                ${coverageText}
+            </div>
+            <div class="therm-row" style="margin-top:5px;">
+                <span>Method:</span>
                 <span>${payMethod}</span>
             </div>
         </div>
@@ -3956,7 +3930,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
 
         <div class="therm-footer">
             <br>
-            <i>${isReminder ? 'Please pay before due date.' : 'Thank you for your payment!'}</i>
+            <i>${isReminder ? 'Please pay before due date to avoid interruption.' : 'Thank you for your payment!'}</i>
         </div>
     </div>
     `;
