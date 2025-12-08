@@ -2487,140 +2487,116 @@ function renderClientTally(clientTally) {
     });
 }
 
-function recomputePointsAndBalance(acc){
-  const originalPoints = {advance:0, ontime:0, lost:0};
-  let currentBalance = 0;
-
-  acc.points = {advance:0, ontime:0, lost:0};
-  
-  // Ensure arrays exist
-  acc.charges = acc.charges || []; 
-  acc.discounts = acc.discounts || [];
-
-  // 1. Process Extra Charges (Adds to debt)
-  acc.charges.forEach(c => {
-      currentBalance -= Number(c.amount); 
-  });
-
-  // 2. Process Discounts (Reduces debt/Adds to credits)
-  acc.discounts.forEach(d => {
-      currentBalance += Number(d.amount);
-  });
-
-  // 3. Process Payments & Monthly Fees
-  acc.payments.forEach(p=>{
-    const d = new Date(p.date + 'T00:00:00').getDate();
-    const planFee = acc.plan.fee;
+function recomputePointsAndBalance(acc) {
+    // 1. Reset Counters
+    acc.points = { advance: 0, ontime: 0, lost: 0 };
+    let currentBalance = 0;
     
-    // SNAPSHOT: Balance BEFORE this payment
-    p.excessLackingBalanceBefore = currentBalance;
+    // We need a simulation date to track "Next Due". 
+    // Start from Account Creation or a default past date if missing.
+    let simulationDate = new Date(acc.createdAt || '2023-01-01');
+    // Align simulation date to the billing day of that month
+    simulationDate.setDate(FIXED_BILLING_DAY);
+
+    // 2. Combine all transactions to process chronologically
+    let allTxns = [];
     
-    // LOGIC: Calculate how many future months were covered by the PREVIOUS balance
-    const monthsCoveredBefore = Math.floor(Math.max(0, currentBalance) / planFee);
-
-    // Apply the Payment
-    const grossPayment = Number(p.amount || 0);
-    let amountToApply = grossPayment + currentBalance;
-
-    // Surcharge Logic (21st-25th)
-    let surcharge = 0;
-    if(d >= 21 && d <= 25){
-      surcharge = Math.round(planFee * 0.10);
-      acc.points.lost = (acc.points.lost||0) + 1;
+    // Add Payments
+    if(acc.payments) {
+        acc.payments.forEach(p => allTxns.push({ type: 'payment', date: p.date, obj: p }));
     }
-    p.surchargeApplied = surcharge;
-
-    // Discount Logic
-    let feeAdjustment = 0;
-    if (acc.points.advance >= 12) {
-      feeAdjustment = planFee;
-      acc.points.advance -= 12;
-    } else if (acc.points.ontime >= 12) {
-      feeAdjustment = planFee * 0.50;
-      acc.points.ontime -= 12;
+    // Add Charges (Decreases Balance)
+    if(acc.charges) {
+        acc.charges.forEach(c => allTxns.push({ type: 'charge', date: c.date, obj: c }));
     }
-    p.discountApplied = feeAdjustment;
-
-    // Calculate Bill for THIS month
-    let amountDueThisMonth = planFee - feeAdjustment + surcharge;
-    
-    // Handle Reconnection special case
-    let finalAmountDue = (p.type === 'reconnect') ? p.appliedTotal : amountDueThisMonth;
-
-    // --- BASE POINT CALCULATION ---
-    if (amountToApply >= finalAmountDue) {
-        if(d >= 1 && d <= 19) acc.points.advance++;
-        else if(d === 20) acc.points.ontime++;
+    // Add Discounts (Increases Balance)
+    if(acc.discounts) {
+        acc.discounts.forEach(d => allTxns.push({ type: 'discount', date: d.date, obj: d }));
     }
 
-    // Update the Running Balance
-    currentBalance = amountToApply - finalAmountDue;
+    // Sort by Date
+    allTxns.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // 3. Process Ledger
+    allTxns.forEach(txn => {
+        const planFee = acc.plan.fee;
+
+        if (txn.type === 'charge') {
+            currentBalance -= Number(txn.obj.amount);
+        } 
+        else if (txn.type === 'discount') {
+            currentBalance += Number(txn.obj.amount);
+        } 
+        else if (txn.type === 'payment') {
+            const p = txn.obj;
+            const payAmount = Number(p.amount);
+            const payDate = new Date(p.date);
+            const payDay = payDate.getDate();
+
+            // Add payment to running balance
+            currentBalance += payAmount;
+
+            // TRACKING: Which months did THIS specific payment cover?
+            let monthsCoveredArr = []; 
+
+            // LOGIC: Deduct Plan Fee for every full month covered by the CURRENT balance
+            // e.g., Bal 1500 / 500 = 3 loops.
+            while (currentBalance >= planFee) {
+                // 1. Determine the Month Name being paid for (based on simulationDate)
+                const monthName = simulationDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+                monthsCoveredArr.push(monthName);
+
+                // 2. Award Points
+                // Logic: If it's the *very first* month being cleared by this transaction, check the date.
+                // If it's the 2nd, 3rd, etc. month being cleared (Advance), it's always Advance points.
+                if (monthsCoveredArr.length === 1) {
+                    // First month covered by this pay
+                    if (payDay >= 1 && payDay <= 19) acc.points.advance++;
+                    else if (payDay === 20) acc.points.ontime++;
+                    else acc.points.lost++; // Late
+                } else {
+                    // 2nd+ month covered (e.g., Nov is paid, this pays Dec) -> Automatic Advance
+                    acc.points.advance++;
+                }
+
+                // 3. Deduct Fee & Move Simulation Date Forward
+                currentBalance -= planFee;
+                
+                // Increment month
+                simulationDate.setMonth(simulationDate.getMonth() + 1);
+            }
+
+            // Save data to the payment object for the Invoice
+            p.monthsCoveredList = monthsCoveredArr; // e.g., ["November 2023", "December 2023"]
+            p.balanceAfter = currentBalance; // The "Excess" or "Lacking" remaining
+            
+            // Handle Surcharge Logic for the Invoice display only (Logic: 21st-25th)
+            if (payDay >= 21 && payDay <= 25 && monthsCoveredArr.length > 0) {
+                 p.surchargeApplied = Math.round(planFee * 0.10);
+            } else {
+                 p.surchargeApplied = 0;
+            }
+        }
+    });
+
+    // 4. Update Final Account State
+    acc.excessLackingBalance = currentBalance;
     
-    p.balanceApplied = currentBalance;
-    p.appliedTotal = finalAmountDue;
-    if (!p.referenceNumber) p.referenceNumber = generateRefNumber(acc.accountNumber, p.date);
+    // The simulationDate is now the "Next Due Month" because we incremented it every time a fee was paid.
+    acc.nextDue = simulationDate.toISOString().slice(0, 10);
 
-    // --- EXTRA ADVANCE POINTS CALCULATION ---
-    const monthsCoveredAfter = Math.floor(Math.max(0, currentBalance) / planFee);
-    const extraPoints = monthsCoveredAfter - monthsCoveredBefore;
-
-    if (extraPoints > 0) {
-        acc.points.advance += extraPoints;
+    // Auto-Terminated check
+    const now = new Date();
+    const nextDueDt = new Date(acc.nextDue);
+    if (acc.status === 'Active' && now > nextDueDt && now.getDate() >= 26) {
+        // Only terminate if they actually owe money (Balance < 0 implies they haven't covered the current month)
+        // Actually, logic: if currentBalance < planFee, they haven't paid next month.
+        // But "Terminated" usually means they missed the LAST deadline. 
+        // We'll stick to your existing check:
+        acc.status = 'Terminated'; 
     }
-  });
-
-  acc.excessLackingBalance = currentBalance;
-
-  // --- NEW: SMART NEXT DUE DATE CALCULATION ---
-  // 1. Start from today
-  const now = new Date();
-  let targetMonth = now.getMonth();
-  let targetYear = now.getFullYear();
-  
-  // 2. If today is past the 20th, the "base" next due is next month
-  if (now.getDate() > FIXED_BILLING_DAY) {
-      targetMonth++;
-      if(targetMonth > 11) { targetMonth = 0; targetYear++; }
-  }
-
-  // 3. Calculate how many COMPLETE future months are covered by the current Excess Balance
-  // Example: Balance 500, Fee 500 = 1 Month covered.
-  let monthsCoveredByBalance = 0;
-  if(acc.excessLackingBalance > 0) {
-      monthsCoveredByBalance = Math.floor(acc.excessLackingBalance / acc.plan.fee);
-  }
-
-  // 4. Push the Next Due Date forward by the covered months
-  // If covered = 1 (December), next due becomes January
-  targetMonth += monthsCoveredByBalance;
-  
-  // Handle Year rollovers (e.g., Month 13 becomes Month 1 of next year)
-  while(targetMonth > 11) {
-      targetMonth -= 12;
-      targetYear++;
-  }
-
-  // 5. Set the new smart date
-  // Note: We deliberately set it to the FIXED_BILLING_DAY (20th)
-  const smartNextDue = new Date(targetYear, targetMonth, FIXED_BILLING_DAY);
-  
-  // Convert to YYYY-MM-DD format
-  // We use a helper to ensure timezone doesn't mess it up
-  const yearStr = smartNextDue.getFullYear();
-  const monthStr = String(smartNextDue.getMonth() + 1).padStart(2, '0');
-  const dayStr = String(smartNextDue.getDate()).padStart(2, '0');
-  
-  acc.nextDue = `${yearStr}-${monthStr}-${dayStr}`;
-  // ---------------------------------------------
-
-  // AUTO-FREEZE LOGIC (Based on the calculated smart date)
-  const nextDueDt = new Date(acc.nextDue + 'T00:00:00');
-  if (acc.status === 'Active' && now > nextDueDt && now.getDate() >= 26) {
-      if(acc.excessLackingBalance < 0) {
-          acc.status = 'Terminated';
-      }
-  }
 }
+
 
 
 
@@ -3765,126 +3741,65 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 function generateInvoiceHtml(acc, isReminder = false) {
     const lastPayment = acc.payments.length ? acc.payments[acc.payments.length - 1] : null;
-    const today = new Date();
     const planFee = acc.plan.fee;
+    const balance = acc.excessLackingBalance;
+    const today = new Date();
+
+    // --- DETERMINE COVERAGE TEXT ---
+    let coverageText = "";
+    let statusHtml = "";
     
-    // 1. Setup Dates, Ref, Method
-    const displayDate = (!isReminder && lastPayment) 
-        ? new Date(lastPayment.date).toLocaleDateString() 
-        : today.toLocaleDateString();
-
-    const refNum = (!isReminder && lastPayment && lastPayment.referenceNumber) 
-        ? lastPayment.referenceNumber
-        : "REMINDER"; 
-
-    const payMethod = (!isReminder && lastPayment && lastPayment.method) 
-        ? lastPayment.method 
-        : (isReminder ? "Pending" : "Cash");
-
-    // ============================================================
-    // LOGIC: COVERAGE TEXT & NEXT BILLING
-    // ============================================================
-    let coverageText = "---";
-    let warningHtml = ""; 
-    let statusLabel = "";
-
-    if (!isReminder && lastPayment) {
-        // --- RECEIPT MODE ---
-        if (lastPayment.billingMonth) {
-            coverageText = lastPayment.billingMonth;
-        } else {
-            coverageText = calculateMonthsCovered(acc.nextDue, lastPayment.amount, planFee);
-        }
-    } else {
-        // --- REMINDER MODE (UPDATED) ---
+    if (isReminder) {
+        // REMINDER MODE: Calculate what is OWED
+        // If balance is positive (Excess), they are paid up to Next Due.
+        // If balance is negative (Lacking), they owe previous months.
+        const nextDueMonth = new Date(acc.nextDue).toLocaleString('default', { month: 'long', year: 'numeric' });
         
-        // 1. Determine "Target Month" based on the Smart Next Due Date
-        const dueDt = new Date(acc.nextDue);
-        const nextBillMonthName = dueDt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        
-        // 2. Check for Debt vs Advance
-        const balance = acc.excessLackingBalance;
-
-        if (balance >= planFee) {
-             // ADVANCE STATUS
-             // They have enough for the upcoming month, so the reminder is for the month AFTER
-             statusLabel = `<div style="text-align:center; color: var(--accent-2); font-weight:bold; margin: 5px 0;">ADVANCE PAYMENT ACTIVE</div>`;
-             coverageText = `Next Bill: ${nextBillMonthName}`;
-        } 
-        else if (balance >= 0 && balance < planFee) {
-            // NORMAL STATUS (Up to date, waiting for next bill)
-            statusLabel = `<div style="text-align:center; color: #d49a37; font-weight:bold; margin: 5px 0;">UPCOMING BILL</div>`;
-            coverageText = `Bill for ${nextBillMonthName}`;
-        }
-        else {
-            // DEBT/OVERDUE STATUS
-            const debt = Math.abs(balance);
-            const monthsOwed = debt / planFee;
-            
-            // Get the month currently unpaid (Next Due Date is technically the date passed)
-            coverageText = `Overdue: ${nextBillMonthName}`;
-
-            if(monthsOwed > 1.1) {
-                // Serious Overdue
-                warningHtml = `
-                <div style="border: 2px solid red; background: #ffe6e6; color: red; padding: 5px; text-align: center; font-weight: bold; font-size: 11px; margin: 10px 0;">
-                    ⚠ WARNING: SERVICE AT RISK<br>
-                    ${Math.floor(monthsOwed)} Months Unpaid. Please pay now.
-                </div>`;
-                coverageText = `Total Overdue (${Math.floor(monthsOwed)} Months)`;
-            } else {
-                 statusLabel = `<div style="text-align:center; color: #d32f2f; font-weight:bold; margin: 5px 0;">PAYMENT DUE</div>`;
-            }
-        }
-    }
-
-    // Invoice Item Logic (Simplified for brevity)
-    const invoiceDateStr = (!isReminder && lastPayment) ? lastPayment.date : today.toISOString().slice(0, 10);
-    const invoiceMonth = invoiceDateStr.slice(0, 7); 
-    
-    let extraItemsHtml = '';
-    if(acc.charges) {
-        acc.charges.forEach(c => {
-            if(c.date.startsWith(invoiceMonth) || (isReminder && acc.excessLackingBalance < 0)) {
-                extraItemsHtml += `<div class="therm-row" style="color:var(--toast-error);"><span>[+] ${c.note}</span><span>₱${Number(c.amount).toFixed(2)}</span></div>`;
-            }
-        });
-    }
-    if(acc.discounts) {
-        acc.discounts.forEach(d => {
-            if(d.date.startsWith(invoiceMonth)) {
-                extraItemsHtml += `<div class="therm-row" style="color:var(--toast-success);"><span>[-] ${d.note}</span><span>-₱${Number(d.amount).toFixed(2)}</span></div>`;
-            }
-        });
-    }
-
-    // Amount Label
-    let mainAmount = 0;
-    let label = "";
-    
-    if(!isReminder && lastPayment) {
-        mainAmount = Number(lastPayment.amount);
-        label = "AMOUNT PAID";
-    } else {
-        // For reminder: If they have excess, amount due is 0 (or next month's fee)
-        // Usually reminder shows what they NEED to pay. 
-        if(acc.excessLackingBalance >= planFee) {
-            mainAmount = 0; 
-            label = "CURRENTLY DUE";
-        } else if (acc.excessLackingBalance > 0) {
-             mainAmount = planFee - acc.excessLackingBalance; // Remaining to complete the month
-             label = "REMAINING BALANCE";
+        if (balance >= 0) {
+             coverageText = `Next Due: ${nextDueMonth}`;
+             statusHtml = `<div style="text-align:center; color:green; font-weight:bold;">ACCOUNT UPDATED</div>`;
         } else {
-            mainAmount = Math.abs(acc.excessLackingBalance);
-            label = "TOTAL AMOUNT DUE";
+             // Lacking
+             const amountNeeded = planFee - balance; // e.g. 500 - (-100) = 600
+             coverageText = `Unpaid Balance + ${nextDueMonth}`;
+             statusHtml = `<div style="border:2px solid red; color:red; padding:5px; text-align:center; font-weight:bold;">PAYMENT REQUIRED</div>`;
+        }
+    } else if (lastPayment) {
+        // RECEIPT MODE: Show what was just paid
+        if (lastPayment.monthsCoveredList && lastPayment.monthsCoveredList.length > 0) {
+            // e.g. "November 2023, December 2023"
+            coverageText = lastPayment.monthsCoveredList.join(", ");
+        } else {
+            // Payment didn't complete a full month (Lacking scenario)
+            coverageText = "Partial Payment (Lacking Balance)";
         }
     }
 
-    const pts = acc.points;
+    // --- DETERMINE BALANCE DISPLAY ---
+    let balanceLabel = "Balanced";
+    let balanceAmount = "0.00";
+    let balanceColor = "#000";
+
+    if (balance > 0) {
+        balanceLabel = "EXCESS (Deduct next month)";
+        balanceAmount = `(Credit) ₱${balance.toFixed(2)}`;
+        balanceColor = "green";
+    } else if (balance < 0) {
+        balanceLabel = "LACKING (Add to next month)";
+        balanceAmount = `(Owed) ₱${Math.abs(balance).toFixed(2)}`;
+        balanceColor = "red";
+    }
+
+    // Setup basic info
+    const displayDate = (!isReminder && lastPayment) ? new Date(lastPayment.date).toLocaleDateString() : today.toLocaleDateString();
+    const refNum = (!isReminder && lastPayment) ? (lastPayment.referenceNumber || 'N/A') : "REMINDER";
+    const amountShow = (!isReminder && lastPayment) ? Number(lastPayment.amount).toFixed(2) : Math.abs(balance).toFixed(2);
+    
+    // HTML CONSTRUCTION
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
-            <img src="logo.png" class="therm-logo" alt="Logo"><br>
+            <img src="logo.png" class="therm-logo" alt="Logo" onerror="this.style.display='none'"><br>
             <div class="therm-title">N'RTECH INTERNET</div>
             <div>San Vicente, Tubod, LDN</div>
             <div>0946-895-3577</div>
@@ -3896,64 +3811,50 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
-            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name}</span></div>
+            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name} (₱${planFee})</span></div>
         </div>
 
         <div class="therm-divider"></div>
-
         <div style="font-weight:bold; text-align:center; margin: 10px 0;">
             ${isReminder ? 'BILLING REMINDER' : 'OFFICIAL RECEIPT'}
         </div>
+        ${statusHtml}
 
-        ${statusLabel} <div class="therm-row">
-            <span>Description</span>
-            <span>Amount</span>
+        <div class="therm-row">
+            <span>Amount Paid/Due:</span>
+            <span style="font-weight:bold; font-size:14px;">₱${amountShow}</span>
         </div>
         
-        <div class="therm-row">
-            <span>Internet Service Fee</span>
-            <span>₱${planFee.toFixed(2)}</span>
+        <div class="therm-row" style="color: ${balanceColor}; margin-top:5px;">
+            <span>${balanceLabel}:</span>
+            <span>${balanceAmount}</span>
         </div>
-
-        ${extraItemsHtml} 
 
         <div class="therm-divider"></div>
 
-        <div class="therm-row" style="font-size: 14px; font-weight: 800;">
-            <span>${label}:</span>
-            <span>₱${mainAmount.toFixed(2)}</span>
-        </div>
-
-        ${warningHtml}
-
         <div style="margin-top: 10px; font-size: 11px;">
-            <div class="therm-row">
-                <span>Coverage:</span>
-                <strong>${coverageText}</strong>
-            </div>
-            <div class="therm-row">
-                <span>Payment Method:</span>
-                <span>${payMethod}</span>
+            <div style="margin-bottom:4px;"><strong>Coverage / Months Paid:</strong></div>
+            <div style="border: 1px dashed #ccc; padding:5px; background:#f9f9f9;">
+                ${coverageText}
             </div>
         </div>
 
         <div class="therm-points-box">
-            <strong>LOYALTY POINTS</strong><br>
+            <strong>LOYALTY POINTS</strong>
             <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; margin-top:2px;">
-                <div>Adv<br><b>${pts.advance}</b></div>
-                <div>OnTime<br><b>${pts.ontime}</b></div>
-                <div>Lost<br><b>${pts.lost}</b></div>
+                <div>Adv<br><b>${acc.points.advance}</b></div>
+                <div>OnTime<br><b>${acc.points.ontime}</b></div>
+                <div>Lost<br><b>${acc.points.lost}</b></div>
             </div>
         </div>
 
         <div class="therm-footer">
             <br>
-            <i>${isReminder ? 'Please pay before due date.' : 'Thank you for your payment!'}</i>
+            <i>${isReminder ? 'Please settle your balance.' : 'Thank you for your payment!'}</i>
         </div>
     </div>
     `;
 }
-
 
 
 
@@ -5046,4 +4947,3 @@ function toggleQuickRef() {
 </script>
 </body>
 </html>
-
