@@ -3708,38 +3708,33 @@ function createAndSendMessengerInvoice(isReminder = false) {
 
 // --- ADD THIS NEW HELPER FUNCTION ---
 
-// --- STEP 1: IMPROVED MONTH CALCULATOR ---
-function calculateMonthsCovered(startDateIso, amount, monthlyFee) {
-    // Safety check
-    if (!amount || amount <= 0 || !monthlyFee || monthlyFee <= 0) return "N/A";
-
-    // 1. Calculate how many months this amount represents
-    // We use Math.round to handle slight floating point variances, 
-    // assuming payments are generally in multiples of the fee.
-    let count = Math.round(amount / monthlyFee);
+function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
+    if (amountPaid <= 0 || monthlyFee <= 0) return "N/A";
     
-    // If partial payment (less than 1 month fee), treat as 1 month (the current one)
-    if (count < 1) count = 1;
+    // Calculate how many months the payment covers
+    // We use Math.floor roughly, but handle remainders as partial
+    const monthsCount = Math.floor(amountPaid / monthlyFee);
+    
+    if (monthsCount < 1) return "Partial Payment";
 
-    // 2. Start looping from the provided start date
-    let current = new Date(startDateIso);
+    let dateCursor = new Date(startDateIso);
     let monthNames = [];
     
-    // Formatting: "Nov 2023"
-    const options = { month: 'short', year: 'numeric' };
+    // Formatting options (e.g., "Oct 2023")
+    const opts = { month: 'short', year: '2-digit' };
 
-    for (let i = 0; i < count; i++) {
-        monthNames.push(current.toLocaleDateString('en-US', options));
+    for (let i = 0; i < monthsCount; i++) {
+        // Add name to list
+        monthNames.push(dateCursor.toLocaleDateString('en-US', opts));
         
-        // Move to the next month for the next iteration
-        current.setMonth(current.getMonth() + 1);
+        // Move to next month
+        dateCursor.setMonth(dateCursor.getMonth() + 1);
     }
-
+    
     return monthNames.join(", ");
 }
 
 
-// --- STEP 2: SMART INVOICE GENERATOR ---
 function generateInvoiceHtml(acc, isReminder = false) {
     const lastPayment = acc.payments.length ? acc.payments[acc.payments.length - 1] : null;
     const today = new Date();
@@ -3935,8 +3930,6 @@ function generateInvoiceHtml(acc, isReminder = false) {
     </div>
     `;
 }
-
-
 
 
 
@@ -5029,3 +5022,4 @@ function toggleQuickRef() {
 </body>
 </html>
 
+ 
