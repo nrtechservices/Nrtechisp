@@ -3921,6 +3921,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
     let finalDueDateString = forcedDueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
     // 2. RETURN HTML
+    const pts = acc.points;
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
