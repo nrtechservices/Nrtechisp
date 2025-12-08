@@ -1337,14 +1337,36 @@
     </div>
     <div style="margin-top:8px">
       <div class="muted" style="margin-bottom:8px">Add a payment quickly</div>
+      
       <label class="muted">Account</label>
       <select id="quickAccount"></select>
+
+      <label style="margin-top:8px" class="muted">Billing Month Covered</label>
+      <input id="quickBillingMonth" type="month" />
+
       <label style="margin-top:8px" class="muted">Amount</label>
       <input id="quickAmount" type="number" value="0" />
-      <label style="margin-top:8px" class="muted">Date</label>
+      
+      <label style="margin-top:8px" class="muted">Payment Date</label>
       <input id="quickDate" type="date" />
+
+      <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 8px;">
+          <div>
+            <label class="muted">Method</label>
+            <select id="quickMethod" onchange="toggleQuickRef()">
+                <option value="Cash">Cash</option>
+                <option value="GCash">GCash</option>
+            </select>
+          </div>
+          <div>
+            <label class="muted">Reference #</label>
+            <input id="quickRef" placeholder="Optional for Cash" />
+          </div>
+      </div>
+
       <div style="text-align:right;margin-top:16px"><button id="btnQuickPay">Add Payment</button></div>
     </div>
+  </div>
   </div>
 </div>
 <div class="modal-backdrop" id="modalPayBackdrop">
@@ -2683,14 +2705,18 @@ document.getElementById('closeDashboard').onclick = () => {
 };
 document.getElementById('dashBtnQuickPay').onclick = () => {
     modalDashboardBackdrop.style.display = 'none';
-    const today = new Date().toISOString().slice(0,10);
-    document.getElementById('quickDate').value = today;
+    const today = new Date();
+    document.getElementById('quickDate').value = today.toISOString().slice(0,10);
+    // Default billing month to current month
+    document.getElementById('quickBillingMonth').value = today.toISOString().slice(0,7); 
+
     if(accounts.length > 0) {
        const defaultIdx = Number(document.getElementById('quickAccount').value) || 0;
        document.getElementById('quickAmount').value = accounts[defaultIdx]?.plan.fee || 0;
     }
     modalQuickPayBackdrop.style.display='flex';
 };
+
 document.getElementById('dashBtnLiquidation').onclick = () => {
     modalDashboardBackdrop.style.display = 'none';
     const today = new Date().toISOString().slice(0, 7);
@@ -3299,10 +3325,48 @@ document.getElementById('btnQuickPay').onclick = ()=>{
   const idx = Number(document.getElementById('quickAccount').value);
   const amt = Number(document.getElementById('quickAmount').value);
   const date = document.getElementById('quickDate').value;
-  if(Number.isNaN(idx) || !accounts[idx] || !date || amt<=0) return showToast('Choose account, date, and amount', 'error');
-  applyPaymentToAccount(accounts[idx], {date, amount:amt, note:'Quick Payment'});
-  saveAccounts(); renderAccounts(); modalQuickPayBackdrop.style.display='none'; showToast('Quick Payment added.', 'success');
+
+  // NEW FIELDS
+  const billMonth = document.getElementById('quickBillingMonth').value; // e.g., "2023-10"
+  const method = document.getElementById('quickMethod').value;
+  const ref = document.getElementById('quickRef').value.trim();
+
+  // Validation
+  if(Number.isNaN(idx) || !accounts[idx] || !date || amt<=0) {
+      return showToast('Choose account, date, and amount', 'error');
+  }
+  if(method === 'GCash' && !ref) {
+      return showToast('Reference Number is REQUIRED for GCash payments.', 'error');
+  }
+
+  // Convert "2023-10" to "October 2023" for display
+  let formattedMonth = "N/A";
+  if(billMonth) {
+      const [y, m] = billMonth.split('-');
+      const dateObj = new Date(y, m - 1);
+      formattedMonth = dateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
+  }
+
+  const note = `For ${formattedMonth} (${method})`;
+
+  applyPaymentToAccount(accounts[idx], {
+      date: date, 
+      amount: amt, 
+      note: note, // We save the specific month/method in the note
+      method: method, // Save separately for invoice logic
+      billingMonth: formattedMonth, // Save separately for invoice logic
+      referenceNumber: ref || generateRefNumber(accounts[idx].accountNumber, date)
+  });
+
+  saveAccounts(); 
+  renderAccounts(); 
+  modalQuickPayBackdrop.style.display='none'; 
+  showToast('Quick Payment added.', 'success');
+
+  // Reset inputs
+  document.getElementById('quickRef').value = "";
 };
+
 
 /* =========================
    CALENDAR VIEW
@@ -3678,59 +3742,81 @@ function generateInvoiceHtml(acc, isReminder = false) {
     const today = new Date();
     const planFee = acc.plan.fee;
     
-    // 1. Setup Dates & Ref
+    // 1. Setup Dates, Ref, Method
     const displayDate = (!isReminder && lastPayment) 
         ? new Date(lastPayment.date).toLocaleDateString() 
         : today.toLocaleDateString();
 
-    const refNum = (!isReminder && lastPayment) 
-        ? (lastPayment.referenceNumber)
-        : generateRefNumber(acc.accountNumber, today.toISOString()); // Use new 8-char generator
+    // Use specific Ref or Generate one
+    const refNum = (!isReminder && lastPayment && lastPayment.referenceNumber) 
+        ? lastPayment.referenceNumber
+        : generateRefNumber(acc.accountNumber, today.toISOString());
 
-    // 2. Calculate Amounts
+    // Get Payment Method (Default to Cash if missing)
+    const payMethod = (!isReminder && lastPayment && lastPayment.method) 
+        ? lastPayment.method 
+        : "Cash";
+
+    // 2. Billing Month Logic (From Quick Pay or Default)
+    let coverageText = "---";
+    if (!isReminder && lastPayment && lastPayment.billingMonth) {
+        coverageText = lastPayment.billingMonth;
+    } else if (!isReminder && lastPayment) {
+        // Fallback if made via old method
+        coverageText = calculateMonthsCovered(acc.nextDue, lastPayment.amount, planFee);
+    } else {
+        // Reminder mode
+        const d = new Date(acc.nextDue);
+        d.setMonth(d.getMonth() - 1);
+        coverageText = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    }
+
+    // 3. LOGIC: Fetch relevant Charges & Discounts (Same Month as Payment/Invoice)
+    // We look for charges/discounts in the same YYYY-MM as the invoice date
+    const invoiceMonth = (!isReminder && lastPayment) ? lastPayment.date.slice(0, 7) : today.toISOString().slice(0, 7);
+    
+    let extraItemsHtml = '';
+    
+    // Check Charges
+    if(acc.charges) {
+        acc.charges.forEach(c => {
+            if(c.date.startsWith(invoiceMonth)) {
+                extraItemsHtml += `
+                <div class="therm-row" style="color:var(--toast-error);">
+                    <span>[Charge] ${c.note}</span>
+                    <span>₱${Number(c.amount).toFixed(2)}</span>
+                </div>`;
+            }
+        });
+    }
+
+    // Check Discounts
+    if(acc.discounts) {
+        acc.discounts.forEach(d => {
+            if(d.date.startsWith(invoiceMonth)) {
+                extraItemsHtml += `
+                <div class="therm-row" style="color:var(--toast-success);">
+                    <span>[Discount] ${d.note}</span>
+                    <span>-₱${Number(d.amount).toFixed(2)}</span>
+                </div>`;
+            }
+        });
+    }
+
+    // 4. Main Totals
     let mainAmount = 0;
     let label = "";
     
     if(!isReminder && lastPayment) {
-        // RECEIPT MODE
         mainAmount = Number(lastPayment.amount);
         label = "AMOUNT PAID";
     } else {
-        // REMINDER MODE
-        // If balance is negative, that's what they owe.
         mainAmount = acc.excessLackingBalance < 0 ? Math.abs(acc.excessLackingBalance) : 0;
         label = "TOTAL DUE";
     }
 
-    // 3. FEATURE: Calculate Months Covered
-    // We base the start date on the Account's Next Due Date logic
-    // If it's a receipt, we look at what was just paid. 
-    let coverageText = "---";
-    if (!isReminder && lastPayment) {
-        // For receipts, calculate forward from the *previous* due date
-        // (Simplified here: we project based on payment amount)
-        coverageText = calculateMonthsCovered(acc.nextDue, mainAmount, planFee);
-    } else if (isReminder) {
-        // For reminders, it's the current billing month
-        const d = new Date(acc.nextDue);
-        d.setMonth(d.getMonth() - 1); // The month they are paying for is usually the one ending
-        coverageText = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    }
-
-    // 4. FEATURE: Points Display
+    // 5. Build HTML
     const pts = acc.points;
-    const pointsHtml = `
-        <div class="therm-points-box">
-            <strong>LOYALTY POINTS</strong><br>
-            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; margin-top:2px;">
-                <div>Adv<br><b>${pts.advance}</b></div>
-                <div>OnTime<br><b>${pts.ontime}</b></div>
-                <div>Lost<br><b>${pts.lost}</b></div>
-            </div>
-        </div>
-    `;
-
-    // 5. Build Thermal HTML
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -3746,7 +3832,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
-            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name} (${acc.plan.speed})</span></div>
+            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name}</span></div>
         </div>
 
         <div class="therm-divider"></div>
@@ -3765,12 +3851,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <span>₱${planFee.toFixed(2)}</span>
         </div>
 
-        ${!isReminder ? `
-        <div class="therm-row">
-            <span>Payment Received</span>
-            <span>₱${mainAmount.toFixed(2)}</span>
-        </div>
-        ` : ''}
+        ${extraItemsHtml}
 
         <div class="therm-divider"></div>
 
@@ -3780,24 +3861,33 @@ function generateInvoiceHtml(acc, isReminder = false) {
         </div>
 
         <div style="margin-top: 10px; font-size: 11px;">
-            <strong>Coverage Period:</strong><br>
-            ${coverageText}
+            <div class="therm-row">
+                <span>Billing Month:</span>
+                <strong>${coverageText}</strong>
+            </div>
+            <div class="therm-row">
+                <span>Payment Method:</span>
+                <span>${payMethod}</span>
+            </div>
         </div>
 
-        ${pointsHtml}
+        <div class="therm-points-box">
+            <strong>LOYALTY POINTS</strong><br>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; margin-top:2px;">
+                <div>Adv<br><b>${pts.advance}</b></div>
+                <div>OnTime<br><b>${pts.ontime}</b></div>
+                <div>Lost<br><b>${pts.lost}</b></div>
+            </div>
+        </div>
 
         <div class="therm-footer">
-            <div style="border:1px solid #000; padding:5px; display:inline-block; margin-bottom:5px;">
-                PAID VIA GCASH / CASH
-            </div>
             <br>
             <i>Thank you for your payment!</i>
-            <br>
-            <small>This is a system generated receipt.</small>
         </div>
     </div>
     `;
 }
+
 
 
 
@@ -4874,6 +4964,19 @@ document.getElementById('fileRecoverInput').onchange = (event) => {
     document.getElementById('fileRecoverInput').value = ''; 
 };
 
+function toggleQuickRef() {
+    const method = document.getElementById('quickMethod').value;
+    const refInput = document.getElementById('quickRef');
+    if (method === 'GCash') {
+        refInput.placeholder = "Required for GCash";
+        refInput.style.borderColor = "var(--accent)";
+    } else {
+        refInput.placeholder = "Optional for Cash";
+        refInput.style.borderColor = "var(--border)";
+    }
+}
+
 </script>
 </body>
 </html>
+
