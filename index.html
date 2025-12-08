@@ -908,25 +908,34 @@
     border: 1px solid #ddd; /* Visual border for screen, removed in print */
 }
 
+/* --- UPDATED INVOICE HEADER STYLING --- */
 .therm-header {
     text-align: center;
     border-bottom: 2px dashed #000;
-    padding-bottom: 10px;
-    margin-bottom: 10px;
+    padding-bottom: 5px; /* Reduced from 10px */
+    margin-bottom: 5px;  /* Reduced from 10px */
 }
 
 .therm-logo {
-    width: 100px; /* <--- CHANGED TO 100px (Adjust this number to resize) */
+    width: 80px; /* Made slightly smaller to save space */
     height: auto;
-    filter: grayscale(100%); 
-    margin-bottom: 5px;
+    filter: grayscale(100%);
+    margin-bottom: 0; /* Removed margin below logo */
 }
 
 .therm-title {
-    font-weight: 800; 
-    font-size: 16px; 
+    font-weight: 800;
+    font-size: 16px;
     text-transform: uppercase;
-    margin-bottom: 5px;
+    margin-top: 2px; /* Pull title closer to logo */
+    margin-bottom: 2px;
+}
+
+/* Ensure footer is compact too */
+.therm-footer {
+    text-align: center;
+    margin-top: 10px;
+    font-size: 10px;
 }
 
 .therm-info {
@@ -1257,19 +1266,25 @@
         </div>
 
         <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;">
-            <button id="btnPrintInvoice" class="no-print small ghost" style="white-space: nowrap;">
-                🖨️ Receipt
-            </button>
-            <button id="btnPrintReminderInvoice" class="no-print small ghost" style="white-space: nowrap;">
-                🔔 Reminder
-            </button>
-            <button id="btnDownloadInvoicePng" class="no-print small ghost" style="color: var(--accent); border-color: var(--accent); white-space: nowrap;">
-                ⬇️ PNG
-            </button>
-            <button id="btnSendMessenger" class="no-print small ghost" style="white-space: nowrap;">
-                💬 Messenger
-            </button>
-        </div>
+    <button id="btnPrintInvoice" class="no-print small ghost" style="white-space: nowrap;">
+        🖨️ Receipt
+    </button>
+    <button id="btnPrintReminderInvoice" class="no-print small ghost" style="white-space: nowrap;">
+        🔔 Reminder
+    </button>
+    
+    <button id="btnReceiptPng" class="no-print small ghost" style="color: var(--accent); border-color: var(--accent); white-space: nowrap;">
+        ⬇️ Receipt PNG
+    </button>
+
+    <button id="btnDownloadInvoicePng" class="no-print small ghost" style="white-space: nowrap;">
+        ⬇️ Reminder PNG
+    </button>
+
+    <button id="btnSendMessenger" class="no-print small ghost" style="white-space: nowrap;">
+        💬 Messenger
+    </button>
+</div>
 
       </div>
 
@@ -3892,15 +3907,27 @@ function generateInvoiceHtml(acc, isReminder = false) {
         });
     }
 
-    // 3. BUILD HTML
-    const pts = acc.points;
+  
+/* Inside generateInvoiceHtml function... find the bottom part */
+
+// ... previous code ...
+
+    // 1. FORCE DAY 20 LOGIC
+    // We take the YYYY-MM part from nextDue and manually add "-20"
+    // Then we create the date object based on local time components to prevent timezone shift
+    let nextDueParts = acc.nextDue.split('-'); // [YYYY, MM, DD]
+    // Create a date object specifically for display: Month is 0-indexed in JS
+    let forcedDueDate = new Date(nextDueParts[0], nextDueParts[1] - 1, 20); 
+    let finalDueDateString = forcedDueDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+    // 2. RETURN HTML
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
             <img src="logo.png" class="therm-logo" alt="Logo"><br>
             <div class="therm-title">N'RTECH INTERNET</div>
-            <div>San Vicente, Tubod, LDN</div>
-            <div>0946-895-3577</div>
+            <div style="font-size:11px;">San Vicente, Tubod, LDN</div>
+            <div style="font-size:11px;">0946-895-3577</div>
         </div>
 
         <div class="therm-info">
@@ -3914,19 +3941,12 @@ function generateInvoiceHtml(acc, isReminder = false) {
 
         <div class="therm-divider"></div>
 
-        <div style="font-weight:bold; text-align:center; margin: 10px 0;">
+        <div style="font-weight:bold; text-align:center; margin: 5px 0;">
             ${isReminder ? 'BILLING REMINDER' : 'OFFICIAL RECEIPT'}
         </div>
 
-        <div class="therm-row">
-            <span>Description</span>
-            <span>Amount</span>
-        </div>
-        
-        <div class="therm-row">
-            <span>Internet Service Fee</span>
-            <span>₱${planFee.toFixed(2)}</span>
-        </div>
+        <div class="therm-row"><span>Description</span><span>Amount</span></div>
+        <div class="therm-row"><span>Internet Service Fee</span><span>₱${planFee.toFixed(2)}</span></div>
 
         ${extraItemsHtml}
 
@@ -3947,7 +3967,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
             </div>
             <div class="therm-row">
                 <span>Next Due Date:</span>
-                <span>${new Date(acc.nextDue).toLocaleDateString()}</span>
+                <span style="font-weight:bold;">${finalDueDateString}</span>
             </div>
         </div>
 
@@ -3967,7 +3987,6 @@ function generateInvoiceHtml(acc, isReminder = false) {
     </div>
     `;
 }
-
 
 
 
@@ -5070,8 +5089,87 @@ function toggleQuickRef() {
     }
 }
 
+/* =========================================
+   NEW: RECEIPT PNG BUTTON LOGIC
+   ========================================= */
+document.getElementById('btnReceiptPng').onclick = () => {
+    // False means "Receipt", not "Reminder"
+    generateAndDownloadPng(false); 
+};
+
+// Existing button reused for Reminder PNG
+document.getElementById('btnDownloadInvoicePng').onclick = () => {
+    // True means "Reminder"
+    generateAndDownloadPng(true); 
+};
+
+// Helper function to handle PNG generation for both buttons
+async function generateAndDownloadPng(isReminder) {
+    if (activeAccountIndex === null) return showToast('Select an account.', 'warning');
+    const acc = accounts[activeAccountIndex];
+
+    // 1. Generate HTML Content
+    const htmlContent = generateInvoiceHtml(acc, isReminder);
+    
+    // 2. Create Temp Container (Invisible to user but visible to code)
+    const tempContainer = document.createElement('div');
+    tempContainer.style.position = 'fixed';
+    tempContainer.style.top = '0';
+    tempContainer.style.left = '0';
+    tempContainer.style.width = '100%';
+    tempContainer.style.height = '100%'; 
+    tempContainer.style.zIndex = '9999';
+    tempContainer.style.background = '#ffffff';
+    tempContainer.style.display = 'flex';
+    tempContainer.style.justifyContent = 'center';
+    tempContainer.style.alignItems = 'center';
+    tempContainer.innerHTML = htmlContent; 
+    
+    document.body.appendChild(tempContainer);
+    showToast('Generating Image...', 'info');
+
+    // 3. Find target
+    const targetElement = tempContainer.querySelector('.invoice-thermal');
+
+    // 4. Convert
+    try {
+        const canvas = await html2canvas(targetElement, {
+            scale: 2, 
+            useCORS: true, 
+            backgroundColor: '#ffffff',
+            logging: false
+        });
+
+        // 5. Download
+        const suffix = isReminder ? "REMINDER" : "RECEIPT";
+        const filename = `${suffix}_${acc.name.replace(/\s+/g,'_')}_${Date.now()}.jpg`;
+
+        canvas.toBlob(function(blob) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            
+            // Cleanup
+            setTimeout(() => {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+                document.body.removeChild(tempContainer);
+                showToast(`${suffix} Downloaded!`, 'success');
+            }, 100);
+        }, 'image/jpeg', 0.9);
+
+    } catch (err) {
+        console.error(err);
+        document.body.removeChild(tempContainer);
+        showToast('Error generating image.', 'error');
+    }
+}
+
 </script>
 </body>
 </html>
 
- 
+  
