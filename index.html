@@ -3737,6 +3737,8 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 // --- REPLACE YOUR generateInvoiceHtml FUNCTION ---
 
+// --- REPLACE YOUR OLD generateInvoiceHtml WITH THIS NEW VERSION ---
+
 function generateInvoiceHtml(acc, isReminder = false) {
     const lastPayment = acc.payments.length ? acc.payments[acc.payments.length - 1] : null;
     const today = new Date();
@@ -3747,63 +3749,99 @@ function generateInvoiceHtml(acc, isReminder = false) {
         ? new Date(lastPayment.date).toLocaleDateString() 
         : today.toLocaleDateString();
 
-    // Use specific Ref or Generate one
     const refNum = (!isReminder && lastPayment && lastPayment.referenceNumber) 
         ? lastPayment.referenceNumber
-        : generateRefNumber(acc.accountNumber, today.toISOString());
+        : "REMINDER"; 
 
-    // Get Payment Method (Default to Cash if missing)
     const payMethod = (!isReminder && lastPayment && lastPayment.method) 
         ? lastPayment.method 
-        : "Cash";
+        : (isReminder ? "Pending" : "Cash");
 
-    // 2. Billing Month Logic (From Quick Pay or Default)
+    // ============================================================
+    // TASK 2 LOGIC: REMINDER WARNING & UNPAID MONTH CALCULATION
+    // ============================================================
     let coverageText = "---";
-    if (!isReminder && lastPayment && lastPayment.billingMonth) {
-        coverageText = lastPayment.billingMonth;
-    } else if (!isReminder && lastPayment) {
-        // Fallback if made via old method
-        coverageText = calculateMonthsCovered(acc.nextDue, lastPayment.amount, planFee);
+    let warningHtml = ""; // This will hold the red warning box
+    let statusLabel = "";
+
+    if (!isReminder && lastPayment) {
+        // --- RECEIPT MODE ---
+        // If it's a receipt, show what the payment covered (e.g., "October 2023")
+        if (lastPayment.billingMonth) {
+            coverageText = lastPayment.billingMonth;
+        } else {
+            coverageText = calculateMonthsCovered(acc.nextDue, lastPayment.amount, planFee);
+        }
     } else {
-        // Reminder mode
-        const d = new Date(acc.nextDue);
-        d.setMonth(d.getMonth() - 1);
-        coverageText = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        // --- REMINDER MODE ---
+        // Calculate Debt
+        const debt = acc.excessLackingBalance < 0 ? Math.abs(acc.excessLackingBalance) : 0;
+        
+        // Calculate how many months constitute the debt
+        // (e.g., Debt 1000, Fee 500 = 2 Months)
+        const monthsOwed = debt > 0 ? (debt / planFee) : 0;
+
+        // Date Logic to determine "Present Unpaid Month"
+        const dueDt = new Date(acc.nextDue);
+        const monthName = dueDt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+        if (monthsOwed <= 1.1) {
+            // SCENARIO A: Just the current month is due (or slightly more)
+            coverageText = monthName; 
+            statusLabel = `<div style="text-align:center; color: #d49a37; font-weight:bold; margin: 5px 0;">CURRENT BILLING</div>`;
+        } else {
+            // SCENARIO B: Overdue (More than 1 month worth of debt)
+            // Show Warning Note
+            coverageText = `Overdue (${Math.floor(monthsOwed)} Months)`;
+            
+            warningHtml = `
+            <div style="border: 2px solid red; background: #ffe6e6; color: red; padding: 5px; text-align: center; font-weight: bold; font-size: 11px; margin: 10px 0;">
+                ⚠ WARNING: PAYMENT OVERDUE<br>
+                Please pay immediately to avoid disconnection.
+            </div>`;
+        }
     }
 
-    // 3. LOGIC: Fetch relevant Charges & Discounts (Same Month as Payment/Invoice)
-    // We look for charges/discounts in the same YYYY-MM as the invoice date
-    const invoiceMonth = (!isReminder && lastPayment) ? lastPayment.date.slice(0, 7) : today.toISOString().slice(0, 7);
+    // ============================================================
+    // TASK 1 LOGIC: DETAILED CHARGES AND DISCOUNTS ON INVOICE
+    // ============================================================
+    // Logic: If Receipt, show items from payment month. If Reminder, show ALL unpaid items or current month items.
+    
+    // For simplicity: We grab items matching the current view's date context
+    const invoiceDateStr = (!isReminder && lastPayment) ? lastPayment.date : today.toISOString().slice(0, 10);
+    const invoiceMonth = invoiceDateStr.slice(0, 7); // YYYY-MM
     
     let extraItemsHtml = '';
     
-    // Check Charges
+    // 1. Add Charges (Hardware, Labor, etc) with specific NOTE
     if(acc.charges) {
         acc.charges.forEach(c => {
-            if(c.date.startsWith(invoiceMonth)) {
+            // If Receipt: Only show if charge date matches payment month
+            // If Reminder: Show if it matches current month OR if account is in debt (assuming unpaid)
+            if(c.date.startsWith(invoiceMonth) || (isReminder && acc.excessLackingBalance < 0)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-error);">
-                    <span>[Charge] ${c.note}</span>
+                    <span>[+] ${c.note || 'Extra Charge'}</span>
                     <span>₱${Number(c.amount).toFixed(2)}</span>
                 </div>`;
             }
         });
     }
 
-    // Check Discounts
+    // 2. Add Discounts with specific NOTE
     if(acc.discounts) {
         acc.discounts.forEach(d => {
             if(d.date.startsWith(invoiceMonth)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-success);">
-                    <span>[Discount] ${d.note}</span>
+                    <span>[-] ${d.note || 'Discount'}</span>
                     <span>-₱${Number(d.amount).toFixed(2)}</span>
                 </div>`;
             }
         });
     }
 
-    // 4. Main Totals
+    // Main Amount Calculation
     let mainAmount = 0;
     let label = "";
     
@@ -3812,10 +3850,12 @@ function generateInvoiceHtml(acc, isReminder = false) {
         label = "AMOUNT PAID";
     } else {
         mainAmount = acc.excessLackingBalance < 0 ? Math.abs(acc.excessLackingBalance) : 0;
-        label = "TOTAL DUE";
+        label = "TOTAL BALANCE DUE";
     }
 
-    // 5. Build HTML
+    // ---------------------------------------------
+    // BUILD THE HTML
+    // ---------------------------------------------
     const pts = acc.points;
     return `
     <div id="invoiceCapture" class="invoice-thermal">
@@ -3841,7 +3881,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
             ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
         </div>
 
-        <div class="therm-row">
+        ${statusLabel} <div class="therm-row">
             <span>Description</span>
             <span>Amount</span>
         </div>
@@ -3851,7 +3891,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <span>₱${planFee.toFixed(2)}</span>
         </div>
 
-        ${extraItemsHtml}
+        ${extraItemsHtml} 
 
         <div class="therm-divider"></div>
 
@@ -3860,9 +3900,11 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <span>₱${mainAmount.toFixed(2)}</span>
         </div>
 
+        ${warningHtml}
+
         <div style="margin-top: 10px; font-size: 11px;">
             <div class="therm-row">
-                <span>Billing Month:</span>
+                <span>Coverage:</span>
                 <strong>${coverageText}</strong>
             </div>
             <div class="therm-row">
@@ -3882,7 +3924,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
 
         <div class="therm-footer">
             <br>
-            <i>Thank you for your payment!</i>
+            <i>${isReminder ? 'Please pay before due date.' : 'Thank you for your payment!'}</i>
         </div>
     </div>
     `;
