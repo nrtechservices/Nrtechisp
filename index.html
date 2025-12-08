@@ -2046,16 +2046,28 @@ document.getElementById('btnLogout').onclick = async () => {
     }
 };
 
-// Auto-logout timer logic
+// REPLACE THE OLD resetAutoLogoutTimer FUNCTION WITH THIS ONE:
+
 function resetAutoLogoutTimer() {
     clearTimeout(autoLogoutTimer);
     if (isLoggedIn()) {
         autoLogoutTimer = setTimeout(() => {
+            // 1. Set state to logged out
             setLoginState(false);
-            showToast("You have been automatically logged out due to inactivity.", 'warning');
-        }, AUTO_LOGOUT_DURATION);
+            
+            // 2. Clear any active account selections
+            activeAccountIndex = null;
+            activeClientAccount = null;
+
+            // 3. Force a browser reload to "Redirect" purely to the login screen
+            // This ensures no data is left lingering on the screen
+            alert("Session Expired: You have been automatically logged out due to inactivity.");
+            window.location.reload(); 
+            
+        }, AUTO_LOGOUT_DURATION); // 2 minutes
     }
 }
+
 
 // Attach event listeners for user activity
 ['mousemove', 'keypress', 'click', 'scroll', 'touchstart'].forEach(eventType => {
@@ -5121,6 +5133,20 @@ async function generateAndDownloadPng(isReminder) {
         showToast('Error generating image.', 'error');
     }
 }
+
+// --- PASTE THIS UNDER THE EXISTING MODAL CLOSURES SECTION ---
+
+// Fix for Charge Modal Close Button
+document.getElementById('closeCharge').onclick = () => {
+    document.getElementById('modalChargeBackdrop').style.display = 'none';
+};
+
+// Fix for Discount Modal Close Button
+document.getElementById('closeDiscount').onclick = () => {
+    document.getElementById('modalDiscountBackdrop').style.display = 'none';
+};
+
+
 
 </script>
 </body>
