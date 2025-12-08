@@ -909,30 +909,24 @@
 }
 
 .therm-header {
-    display: flex;             /* Align items side-by-side */
-    align-items: center;       /* Center vertically */
-    justify-content: center;   /* Center the group */
-    gap: 15px;                 /* Space between logo and text */
-    text-align: left;          /* Text aligns to the left */
+    text-align: center;
     border-bottom: 2px dashed #000;
-    padding-bottom: 15px;      /* More padding */
+    padding-bottom: 10px;
     margin-bottom: 10px;
 }
 
 .therm-logo {
-    width: 80px;               /* INCREASED SIZE (Was 50px) */
+    width: 100px; 
     height: auto;
-    filter: grayscale(100%);   
-    object-fit: contain;
+    filter: grayscale(100%); /* Thermal printers print black/white */
+    margin-bottom: 1px;
 }
 
-/* Optional: Adjust title size slightly if needed */
 .therm-title {
-    font-weight: 900; 
-    font-size: 18px;           /* Slightly bigger title */
+    font-weight: 800; 
+    font-size: 16px; 
     text-transform: uppercase;
-    margin-bottom: 2px;
-    line-height: 1.1;
+    margin-bottom: 5px;
 }
 
 .therm-info {
@@ -3743,7 +3737,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <img src="logo.png" class="therm-logo" alt="Logo"><br>
             <div class="therm-title">N'RTECH INTERNET</div>
             <div>San Vicente, Tubod, LDN</div>
-            <div>0946-895-3577</div>
+            <div>0917-000-0000</div>
         </div>
 
         <div class="therm-info">
@@ -3836,8 +3830,8 @@ function createAndPrintInvoice(isReminder = false) {
                 
                 /* Layout Helpers from Step 1 */
                 .therm-header { text-align: center; border-bottom: 2px dashed #000; margin-bottom: 10px; padding-bottom: 10px;}
-                .therm-logo { width: 80px; filter: grayscale(100%); }
-                .therm-title { font-weight: 800; font-size: 14px; margin-top:5px; }
+                .therm-logo { width: 100px; filter: grayscale(100%); }
+                .therm-title { font-weight: 800; font-size: 14px; margin-top:2px; }
                 .therm-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
                 .therm-divider { border-top: 1px dashed #000; margin: 8px 0; }
                 .therm-points-box { border: 1px solid #000; padding: 5px; margin: 10px 0; text-align: center; font-size: 11px; }
