@@ -911,32 +911,11 @@
     margin-bottom: 10px;
 }
 
-/* --- REPLACE/ADD THIS IN YOUR <style> SECTION --- */
-
 .therm-row {
     display: flex;
     justify-content: space-between;
     margin-bottom: 4px;
-    font-size: 12px;
-    align-items: center; /* Ensures text aligns vertically */
 }
-
-/* New class for the specific bill items to ensure strict alignment */
-.therm-item-row {
-    display: flex;
-    justify-content: space-between;
-    font-size: 12px;
-    margin-bottom: 2px;
-    border-bottom: 1px dotted #ddd; /* Light guide line */
-    padding-bottom: 2px;
-}
-
-.therm-item-row span:last-child {
-    font-weight: 700;
-    text-align: right;
-    min-width: 80px; /* Forces alignment column width */
-}
-
 
 .therm-divider {
     border-top: 1px dashed #000;
@@ -4064,157 +4043,187 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 
 /* =========================================
-   UPDATED INVOICE GENERATOR (Aligned, Specific Months, Next Due)
+   UPDATED INVOICE GENERATOR (Requests 1, 2 & 3 Applied)
    ========================================= */
 function generateInvoiceHtml(acc, isReminder = false) {
     const today = new Date();
     const planFee = acc.plan.fee;
-    
-    // 1. Get Settings
     const vatRate = invoiceSettings.vatRate || 0; 
     const permits = invoiceSettings.permits || [];
 
-    // 2. Setup Variables
+    // --- REQUEST 3: FORCE DATE TO 20th ---
+    // Helper to format date strictly as Month 20, Year
+    const formatStrict20 = (dateObj) => {
+        const m = dateObj.toLocaleString('default', { month: 'short' });
+        const y = dateObj.getFullYear();
+        return `${m} 20, ${y}`;
+    };
+
     let mainRef = "REMINDER";
     let mainDate = today.toLocaleDateString();
     let displayTotal = 0;
     let itemsHtml = "";
-    let footerNote = "";
     
-    // Calculate Next Billing Date (Always the 20th of the Next Due Month)
-    const nextDueObj = new Date(acc.nextDue);
-    const nextBillDateStr = nextDueObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    // Variables for calculations
+    let subtotal = 0;
+    let totalDiscount = 0;
+    let totalCharges = 0;
+    let balanceApplied = 0; 
+    let vatAmount = 0;
 
-    // --- LOGIC A: BILLING REMINDER (The complex logic) ---
-    if (isReminder) {
-        mainRef = "BILL-STMT";
+    // --- LOGIC: RECEIPT VS REMINDER ---
+    
+    if (!isReminder && acc.payments.length > 0) {
+        // === RECEIPT MODE ===
+        const lastPay = acc.payments[acc.payments.length - 1];
+        mainDate = new Date(lastPay.date).toLocaleDateString();
+        mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH-REF" : "CASH");
         
-        // 1. Identify Specific Unpaid Months
-        // We start from the 'nextDue' date and count up to today
-        let unpaidMonthsList = [];
-        let cursorDate = new Date(acc.nextDue);
-        
-        // If cursor is in future, it means they are paid up, so we show just the upcoming month
-        if (cursorDate > today) {
-            unpaidMonthsList.push(cursorDate);
-        } else {
-            // They are behind or due now. Loop until we reach current month + 1 buffer
-            // Simple logic: Show what is currently due based on the 'nextDue' date pointer
-            let monthDiff = (today.getFullYear() - cursorDate.getFullYear()) * 12 + (today.getMonth() - cursorDate.getMonth());
-            // Always show at least 1 month
-            let monthsToBill = Math.max(1, monthDiff + 1);
+        // REQUEST 1: SEPARATE NAME AND AMOUNT
+        // We use the 'inv-detail-row' class which has CSS "justify-content: space-between"
+        itemsHtml += `
+            <div class="inv-detail-row">
+                <span>Payment Received</span>
+                <span style="font-weight:700;">₱${Number(lastPay.amount).toFixed(2)}</span>
+            </div>
+        `;
 
-            for(let i=0; i<monthsToBill; i++) {
-                let d = new Date(cursorDate);
-                d.setMonth(d.getMonth() + i);
-                unpaidMonthsList.push(d);
-            }
+        if(lastPay.note) {
+             itemsHtml += `<div class="muted" style="font-size:10px; margin-bottom:5px;">Note: ${lastPay.note}</div>`;
         }
 
-        // 2. Generate HTML for Months
-        let subtotalMonths = 0;
-        unpaidMonthsList.forEach(dateObj => {
-            const monthName = dateObj.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+        // Add Coverage Text
+        if (lastPay.coveredMonths && lastPay.coveredMonths.length > 0) {
             itemsHtml += `
-            <div class="therm-item-row">
-                <span>Bill: ${monthName}</span>
+            <div class="inv-detail-row" style="margin-top:5px; border-top: 1px dashed #ccc; padding-top:5px;">
+                <span class="muted">Covered Period:</span>
+                <span class="muted" style="text-align:right; max-width:60%;">${lastPay.coveredMonths.join(", ")}</span>
+            </div>`;
+        }
+
+        displayTotal = Number(lastPay.amount); // For receipt, total is just what they paid
+
+    } else {
+        // === REMINDER MODE (UPDATED LOGIC) ===
+        
+        // 1. Calculate Start Date (Next Due)
+        let dueDate = new Date(acc.nextDue);
+        
+        // Adjust logic: If today is past the due date, we count how many months.
+        // We iterate month by month from Due Date until Today.
+        
+        let loopDate = new Date(dueDate);
+        let monthCount = 0;
+        
+        // Always add at least the current due month
+        // We use a safe loop to prevent infinite loops (max 24 months)
+        while (loopDate <= today && monthCount < 24) {
+            // REQUEST 2: SPECIFIC UNPAID MONTHS
+            // Format: "Internet Fee (Oct 20 - Nov 20)"
+            const startStr = formatStrict20(loopDate);
+            const nextMonthDate = new Date(loopDate);
+            nextMonthDate.setMonth(nextMonthDate.getMonth() + 1);
+            const endStr = formatStrict20(nextMonthDate);
+
+            itemsHtml += `
+            <div class="inv-detail-row">
+                <span>Bill: ${startStr} - ${endStr}</span>
                 <span>₱${planFee.toFixed(2)}</span>
             </div>`;
-            subtotalMonths += planFee;
-        });
-
-        // 3. Handle Balance (Excess or Lacking)
-        // Logic: Total = (Months * Fee) - (Balance)
-        // If Balance is positive (Excess), it subtracts.
-        // If Balance is negative (Lacking), it adds (minus a negative is plus).
-        
-        const currentBalance = acc.excessLackingBalance;
-        let balanceLabel = "";
-        let balanceHtml = "";
-
-        if (currentBalance > 0) {
-            // User has Advance/Excess
-            balanceHtml = `
-            <div class="therm-item-row" style="color: green;">
-                <span>Less: Advance/Excess</span>
-                <span>- ₱${Math.abs(currentBalance).toFixed(2)}</span>
-            </div>`;
-        } else if (currentBalance < 0) {
-            // User has Lacking/Debt
-            balanceHtml = `
-            <div class="therm-item-row" style="color: red;">
-                <span>Add: Previous Lacking</span>
-                <span>+ ₱${Math.abs(currentBalance).toFixed(2)}</span>
-            </div>`;
-        }
-
-        itemsHtml += balanceHtml;
-
-        // 4. Calculate Final Total Due
-        // Note: We subtract the balance because Positive Balance reduces debt, Negative Balance increases it.
-        displayTotal = subtotalMonths - currentBalance;
-        
-        // Safety: Don't show negative due if they are super advanced (though usually Reminder isn't sent then)
-        if(displayTotal < 0) displayTotal = 0;
-
-        footerNote = "Please pay before due date to avoid disconnection.";
-
-    } 
-    // --- LOGIC B: OFFICIAL RECEIPT (Simple Payment Proof) ---
-    else {
-        // Use last payment details
-        if(acc.payments.length > 0) {
-            const lastPay = acc.payments[acc.payments.length - 1];
-            mainDate = new Date(lastPay.date).toLocaleDateString();
-            mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH" : "CASH");
-            displayTotal = lastPay.amount;
-
-            // Show exactly what was paid
-            itemsHtml += `
-            <div class="therm-item-row">
-                <span>Payment Amount</span>
-                <span>₱${lastPay.amount.toFixed(2)}</span>
-            </div>`;
-
-            if(lastPay.surchargeApplied > 0) {
-                 itemsHtml += `
-                <div class="therm-item-row" style="color:red">
-                    <span>Penalty Fee</span>
-                    <span>(Incl)</span>
-                </div>`;
-            }
             
-            // Show Coverage
-            let coverage = lastPay.coveredMonths && lastPay.coveredMonths.length > 0 
-                ? lastPay.coveredMonths.join(", ") 
-                : "Account Balance / Partial";
-                
-            itemsHtml += `
-            <div style="margin-top:5px; font-size:10px; color:#555;">
-                For: ${coverage}
-            </div>`;
-
-        } else {
-            // Fallback if no payments exist
-            displayTotal = 0;
-            itemsHtml = `<div class="therm-row"><span>No payment record</span><span>0.00</span></div>`;
+            subtotal += planFee;
+            
+            // Increment loop
+            loopDate.setMonth(loopDate.getMonth() + 1);
+            monthCount++;
         }
         
-        footerNote = "This serves as your proof of payment.";
+        // Fallback: If for some reason loop didn't run (e.g. date confusion), add 1 month
+        if(monthCount === 0) {
+             itemsHtml += `
+            <div class="inv-detail-row">
+                <span>Current Bill</span>
+                <span>₱${planFee.toFixed(2)}</span>
+            </div>`;
+            subtotal += planFee;
+        }
+
+        // --- REQUEST 2: SHOW EXCESS OR LACKING SPECIFICALLY ---
+        const balance = acc.excessLackingBalance;
+        
+        if (balance > 0) {
+            // POSITIVE BALANCE = EXCESS (DEDUCT FROM BILL)
+            itemsHtml += `
+            <div class="inv-detail-row" style="color: green;">
+                <span>Less: Wallet Advance/Excess</span>
+                <span>- ₱${balance.toFixed(2)}</span>
+            </div>`;
+            // Math: Total Due = Subtotal - Balance
+            displayTotal = subtotal - balance;
+        } 
+        else if (balance < 0) {
+            // NEGATIVE BALANCE = LACKING (ADD TO BILL)
+            const lacking = Math.abs(balance);
+            itemsHtml += `
+            <div class="inv-detail-row" style="color: red;">
+                <span>Add: Previous Balance/Lacking</span>
+                <span>₱${lacking.toFixed(2)}</span>
+            </div>`;
+            // Math: Total Due = Subtotal + Lacking
+            displayTotal = subtotal + lacking;
+        } else {
+            // Balance is 0
+            displayTotal = subtotal;
+        }
+
+        // Add Unpaid Charges
+        if (acc.charges) {
+            acc.charges.forEach(c => {
+                // Simplified: Show all charges on reminder for now
+                itemsHtml += `
+                <div class="inv-detail-row" style="color:#d32f2f;">
+                    <span>[+] ${c.note}</span>
+                    <span>₱${c.amount.toFixed(2)}</span>
+                </div>`;
+                totalCharges += c.amount;
+            });
+        }
+        
+        // Add Discounts
+        if (acc.discounts) {
+             acc.discounts.forEach(d => {
+                itemsHtml += `
+                <div class="inv-detail-row" style="color:green;">
+                    <span>[-] ${d.note}</span>
+                    <span>- ₱${d.amount.toFixed(2)}</span>
+                </div>`;
+                totalDiscount += d.amount;
+            });
+        }
+
+        // Final Calculation for Reminder
+        displayTotal = displayTotal + totalCharges - totalDiscount;
+        
+        // Prevent negative total due
+        if(displayTotal < 0) displayTotal = 0;
     }
 
-    // 5. Add Extra Charges/Discounts (Simplified: Just listing them if they exist in balance calc)
-    // For specific monthly display, the Balance Logic in Reminder handles the math.
-    
-    // 6. Generate Permit HTML (Optional)
+    // --- VAT CALCULATION ---
+    if (vatRate > 0) {
+        vatAmount = displayTotal * (vatRate / 100);
+        // Assuming VAT is added on top
+        // itemsHtml += ... (Optional: You can add row here)
+        displayTotal += vatAmount;
+    }
+
+    // --- PERMITS HTML ---
     let permitHtml = "";
     if (permits.length > 0) {
         permitHtml = `<div class="inv-permits">`;
-        permits.forEach(p => { permitHtml += `<span>${p.name}: ${p.number}</span> `; });
+        permits.forEach(p => { permitHtml += `<span>${p.name}: ${p.number}</span> &nbsp;|&nbsp; `; });
         permitHtml += `</div>`;
     }
 
-    // 7. Render Final HTML
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -4228,9 +4237,11 @@ function generateInvoiceHtml(acc, isReminder = false) {
         <div class="therm-info">
             <div class="therm-row"><span>Date:</span> <span>${mainDate}</span></div>
             <div class="therm-row"><span>Ref #:</span> <b>${mainRef}</b></div>
+            <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
-            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name}</span></div>
+            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name} (${acc.plan.speed})</span></div>
+            <div class="therm-row"><span>Due Date:</span> <span>${formatStrict20(new Date(acc.nextDue))}</span></div>
         </div>
 
         <div class="therm-divider"></div>
@@ -4238,22 +4249,18 @@ function generateInvoiceHtml(acc, isReminder = false) {
             ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
         </div>
 
-        <div style="margin: 10px 0;">
+        <div style="margin-bottom: 10px;">
             ${itemsHtml}
         </div>
 
         <div class="inv-subtotal-section">
-            <div class="therm-row" style="font-size: 16px; font-weight: 800; border-top: 1px dashed #000; padding-top: 5px;">
+            <div class="therm-row" style="font-size: 16px; font-weight: 800;">
                 <span>${isReminder ? 'TOTAL DUE' : 'AMOUNT PAID'}:</span>
                 <span>₱${displayTotal.toFixed(2)}</span>
             </div>
         </div>
-        
-        <div style="margin-top:15px; background:#eee; padding:5px; text-align:center; border-radius:4px;">
-            <div style="font-size:10px; text-transform:uppercase; color:#555;">Next Billing Date</div>
-            <div style="font-weight:800; font-size:14px;">${nextBillDateStr}</div>
-        </div>
 
+        ${!isReminder ? `
         <div class="therm-points-box">
             <strong>LOYALTY POINTS</strong><br>
             <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; margin-top:2px;">
@@ -4262,9 +4269,10 @@ function generateInvoiceHtml(acc, isReminder = false) {
                 <div>Lost<br><b>${acc.points.lost}</b></div>
             </div>
         </div>
+        ` : ''}
 
         <div class="therm-footer">
-            <i>${footerNote}</i>
+            <i>${isReminder ? 'Please pay before the 20th to avoid disconnection.' : 'Thank you for your business!'}</i>
         </div>
     </div>
     `;
