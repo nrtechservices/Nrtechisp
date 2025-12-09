@@ -1450,7 +1450,7 @@
       <button id="closeQuickPay" class="no-print ghost small">Close</button>
     </div>
     <div style="margin-top:8px">
-      <div class="muted" style="margin-bottom:8px">Add a payment quickly</div>
+      <div class="muted" style="margin-bottom:8px">Select the billing month to auto-set the date.</div>
       
       <label class="muted">Account</label>
       <select id="quickAccount"></select>
@@ -1461,7 +1461,7 @@
       <label style="margin-top:8px" class="muted">Amount</label>
       <input id="quickAmount" type="number" value="0" />
       
-      <label style="margin-top:8px" class="muted">Payment Date</label>
+      <label style="margin-top:8px" class="muted">Payment Date (Recorded)</label>
       <input id="quickDate" type="date" />
 
       <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 8px;">
@@ -1481,8 +1481,8 @@
       <div style="text-align:right;margin-top:16px"><button id="btnQuickPay">Add Payment</button></div>
     </div>
   </div>
-  </div>
 </div>
+
 <div class="modal-backdrop" id="modalPayBackdrop">
   <div class="modal" style="width: min(95%, 400px);">
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -3013,6 +3013,7 @@ document.getElementById('dashBtnQuickPay').onclick = () => {
     const today = new Date();
     document.getElementById('quickDate').value = today.toISOString().slice(0,10);
     // Default billing month to current month
+    
     document.getElementById('quickBillingMonth').value = today.toISOString().slice(0,7); 
 
     if(accounts.length > 0) {
@@ -5488,6 +5489,99 @@ function applySpecificPointDeduction(acc) {
     }
 }
 
+/* =========================================
+   UPDATED QUICK PAY LOGIC
+   1. Auto-changes Payment Date when Month is selected.
+   2. Explicitly records the month in the 'Note'.
+   ========================================= */
+
+// 1. AUTO-UPDATE DATE LISTENER
+// When user picks a month (e.g., "October 2023"), auto-set date to "2023-10-20"
+document.getElementById('quickBillingMonth').addEventListener('change', function() {
+    const selectedMonth = this.value; // Format: "YYYY-MM"
+    if (selectedMonth) {
+        // Automatically set the date to the 20th of that month (The Fixed Billing Day)
+        // This ensures the payment is recorded IN that month for Liquidation/Calendar purposes
+        document.getElementById('quickDate').value = `${selectedMonth}-${FIXED_BILLING_DAY}`;
+        
+        // Visual feedback
+        showToast(`Date set to billing day of ${selectedMonth}`, 'info');
+    }
+});
+
+// 2. UPDATED DASHBOARD BUTTON (Initialize correctly)
+document.getElementById('dashBtnQuickPay').onclick = () => {
+    modalDashboardBackdrop.style.display = 'none';
+    const today = new Date();
+    
+    // Default Date: Today
+    document.getElementById('quickDate').value = today.toISOString().slice(0,10);
+    
+    // Default Month: Current Month
+    document.getElementById('quickBillingMonth').value = today.toISOString().slice(0,7); 
+
+    // Reset Fields
+    document.getElementById('quickAccount').value = "";
+    document.getElementById('quickAmount').value = "";
+    document.getElementById('quickRef').value = "";
+
+    // If accounts exist, default to first one
+    if(accounts.length > 0) {
+       // Optional: Select first active account or blank
+       document.getElementById('quickAccount').value = "0"; 
+       document.getElementById('quickAmount').value = accounts[0]?.plan.fee || 0;
+    }
+    
+    modalQuickPayBackdrop.style.display='flex';
+};
+
+// 3. UPDATED SUBMIT BUTTON
+document.getElementById('btnQuickPay').onclick = ()=>{
+  const idx = Number(document.getElementById('quickAccount').value);
+  const amt = Number(document.getElementById('quickAmount').value);
+  const date = document.getElementById('quickDate').value; // This now matches the selected month
+
+  // Get Context Data
+  const billMonthRaw = document.getElementById('quickBillingMonth').value; // "2023-10"
+  const method = document.getElementById('quickMethod').value;
+  const ref = document.getElementById('quickRef').value.trim();
+
+  // Validation
+  if(Number.isNaN(idx) || !accounts[idx] || !date || amt<=0) {
+      return showToast('Please select account, date, and valid amount.', 'error');
+  }
+  if(method === 'GCash' && !ref) {
+      return showToast('Reference Number is REQUIRED for GCash payments.', 'error');
+  }
+
+  // Format the Month Name for the Note (e.g., "October 2023")
+  let formattedMonth = "General";
+  if(billMonthRaw) {
+      const [y, m] = billMonthRaw.split('-');
+      // Create date object to get name
+      const dateObj = new Date(y, m - 1, 1);
+      formattedMonth = dateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
+  }
+
+  // Create the specific Note
+  const finalNote = `Bill: ${formattedMonth} (${method})`;
+
+  // Apply Payment
+  applyPaymentToAccount(accounts[idx], {
+      date: date, // crucial: uses the date derived from the month picker
+      amount: amt, 
+      note: finalNote, 
+      method: method, 
+      referenceNumber: ref || generateRefNumber(accounts[idx].accountNumber, date)
+  });
+
+  saveAccounts(); 
+  renderAccounts(); 
+  modalQuickPayBackdrop.style.display='none'; 
+  
+  // Confirmation Toast
+  showToast(`Paid ₱${amt} for ${formattedMonth}`, 'success');
+};
 
 </script>
 </body>
