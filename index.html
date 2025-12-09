@@ -1099,38 +1099,38 @@
     display: flex; gap: 5px; margin-bottom: 5px;
 }
 
-/* --- PASTE THIS INSIDE YOUR <style> TAG --- */
+/* --- PASTE THIS INTO YOUR <style> SECTION --- */
 
-/* Ledger Style for detailed calculations */
-.calc-row {
+.math-flow-container {
+    border: 1px solid #000;
+    padding: 10px;
+    margin: 10px 0;
+    font-size: 12px;
+}
+.math-row {
     display: flex;
     justify-content: space-between;
-    font-size: 12px;
-    margin-bottom: 2px;
+    margin-bottom: 4px;
 }
-.calc-row.total {
-    font-weight: 800;
+.math-row.subtotal {
     border-top: 1px dashed #000;
-    margin-top: 5px;
-    padding-top: 5px;
+    padding-top: 4px;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+.math-row.final-total {
+    border-top: 2px solid #000;
+    border-bottom: 2px solid #000;
+    padding: 6px 0;
     font-size: 14px;
+    font-weight: 800;
+    margin-top: 5px;
 }
-.calc-row.sub-result {
-    font-weight: 600;
-    border-top: 1px solid #ddd;
-    margin-top: 2px;
-    padding-top: 2px;
-    font-style: italic;
+.math-indent {
+    padding-left: 10px;
     color: #555;
+    font-style: italic;
 }
-.calc-note {
-    font-size: 10px;
-    color: #666;
-    margin-bottom: 5px;
-    text-align: right;
-}
-.text-danger { color: #d32f2f; }
-.text-success { color: #2e7d32; }
 
 </style>
 
@@ -2648,20 +2648,27 @@ function loadAccounts(){
 }
 function saveAccounts(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts)); }
 
-function computeNextDue(lastPaymentDateIso, billingDay=FIXED_BILLING_DAY){
-    const day = FIXED_BILLING_DAY;
+/* --- REPLACE YOUR EXISTING computeNextDue FUNCTION WITH THIS --- */
 
+function computeNextDue(lastPaymentDateIso, billingDay = 20) {
+    // FORCE DAY TO 20
+    const day = 20; 
+
+    // If no payment history, calculate based on today
     if (!lastPaymentDateIso) {
         const now = new Date();
         let year = now.getFullYear();
         let month = now.getMonth();
-        if (now.getDate() > day) {
+        
+        // If we are past the 20th, next due is next month's 20th
+        if (now.getDate() >= day) {
             month++;
             if (month > 11) { month = 0; year++; }
         }
         return new Date(year, month, day).toISOString().slice(0, 10);
     }
 
+    // Logic based on last covered date
     let ref = new Date(lastPaymentDateIso + 'T00:00:00');
     let nm = ref.getMonth() + 1;
     let ny = ref.getFullYear();
@@ -2671,8 +2678,10 @@ function computeNextDue(lastPaymentDateIso, billingDay=FIXED_BILLING_DAY){
         ny++;
     }
 
+    // Always return the 20th of the computed month
     return new Date(ny, nm, day).toISOString().slice(0, 10);
 }
+
 
 function getNextBillingCycleDueDate(billingDay = FIXED_BILLING_DAY) {
     const today = new Date();
@@ -4076,216 +4085,191 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 
 /* =========================================
-   NEW DETAILED INVOICE GENERATOR (User Request)
+   UPDATED INVOICE GENERATOR (SPECIFIC FLOW)
    ========================================= */
+/* --- REPLACE YOUR EXISTING generateInvoiceHtml FUNCTION WITH THIS --- */
+
 function generateInvoiceHtml(acc, isReminder = false) {
-    const today = new Date();
-    const planFee = Number(acc.plan.fee);
-    
-    // 1. Get Settings
+    const planFee = acc.plan.fee;
     const vatRate = invoiceSettings.vatRate || 0; 
-    const permits = invoiceSettings.permits || [];
-
-    // 2. Setup Header Details
-    let mainRef = isReminder ? "BILLING NOTICE" : "OFFICIAL RECEIPT";
-    let mainDate = today.toLocaleDateString();
     
-    // Default Due Date Logic
+    // --- 1. SETUP DATES & HEADER ---
+    let title = isReminder ? "BILLING REMINDER" : "OFFICIAL RECEIPT";
+    let dateStr = new Date().toLocaleDateString();
+    let refStr = isReminder ? "REM-" + Date.now().toString().slice(-6) : "N/A";
+    
+    // Force Next Due Date Display to the 20th
     const nextDueObj = new Date(acc.nextDue);
-    const nextBillString = nextDueObj.toLocaleDateString('default', { month: 'long', day: 'numeric', year: 'numeric' });
+    // Explicitly set date to 20 for display purposes
+    nextDueObj.setDate(20); 
+    const nextBillString = nextDueObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-    // --- HTML BUILDER START ---
-    let invoiceBody = ""; 
-    let displayTotal = 0;
+    let mathRowsHtml = "";
+    
+    // --- 2. LOGIC BRANCHING ---
 
-    // =========================================================
-    // SCENARIO A: REMINDER / BILLING STATEMENT
-    // Flow: Monthly Bill +/- Previous Balance + Charges = TOTAL
-    // =========================================================
     if (isReminder) {
-        let runningDue = planFee;
+        // ==========================================
+        // REMINDER LOGIC (Future/Current State)
+        // Flow: Lacking + Next Bill + Charges - Excess
+        // ==========================================
         
-        // 1. Base Plan
-        invoiceBody += `
-            <div class="calc-row"><span>Current Plan (${acc.plan.name})</span> <span>₱${planFee.toFixed(2)}</span></div>
+        let totalToPay = 0;
+        
+        // A. Handle Previous Balance (Lacking vs Excess)
+        // In system: Negative Balance = Lacking (Debt), Positive = Excess (Credit)
+        const currentSystemBalance = acc.excessLackingBalance; 
+        
+        if (currentSystemBalance < 0) {
+            // LACKING SCENARIO
+            const lacking = Math.abs(currentSystemBalance);
+            mathRowsHtml += `<div class="math-row" style="color:red;"><span>Previous Insufficient Bal:</span><span>₱${lacking.toFixed(2)}</span></div>`;
+            totalToPay += lacking;
+        } else if (currentSystemBalance > 0) {
+            // EXCESS SCENARIO
+            const excess = currentSystemBalance;
+            mathRowsHtml += `<div class="math-row" style="color:green;"><span>Less: Previous Advance:</span><span>(₱${excess.toFixed(2)})</span></div>`;
+            totalToPay -= excess;
+        }
+
+        // B. Add Next Month's Bill
+        mathRowsHtml += `<div class="math-row"><span><strong>Add: Next Monthly Bill</strong></span><span>₱${planFee.toFixed(2)}</span></div>`;
+        totalToPay += planFee;
+
+        // C. Add Unpaid Charges (Penalties/Reconnection)
+        // We filter for charges in the current month or unpaid
+        if (acc.charges) {
+            acc.charges.forEach(c => {
+                mathRowsHtml += `<div class="math-row math-indent"><span>+ ${c.note}</span><span>₱${c.amount.toFixed(2)}</span></div>`;
+                totalToPay += c.amount;
+            });
+        }
+        
+        // D. Final Calculation
+        if (totalToPay < 0) totalToPay = 0; // Should not happen, but safety check
+
+        mathRowsHtml += `
+            <div class="math-row final-total">
+                <span>TOTAL AMOUNT DUE:</span>
+                <span>₱${totalToPay.toFixed(2)}</span>
+            </div>
+            <div style="text-align:center; margin-top:5px; font-size:11px;">
+                Please pay on or before <b>${nextBillString}</b>
+            </div>
         `;
 
-        // 2. Charges (Penalties, Reconnection)
-        // We look for charges that happened AFTER the last payment or in the current billing cycle
-        // For simplicity in this display, we show distinct penalties.
-        if (acc.charges && acc.charges.length > 0) {
-            // Filter mostly recent or unpaid charges (Approximation based on balance)
+    } else {
+        // ==========================================
+        // RECEIPT LOGIC (Historical Transaction)
+        // Flow: (Prev Bal + Bill) - Payment = New Balance
+        // ==========================================
+        
+        // Get the specific payment being printed (Last one)
+        const lastPay = acc.payments.length > 0 ? acc.payments[acc.payments.length - 1] : { amount: 0, date: new Date() };
+        dateStr = new Date(lastPay.date).toLocaleDateString();
+        refStr = lastPay.referenceNumber || "CASH";
+
+        // Reverse Engineering the "Previous Balance"
+        // System Balance (Now) = PrevBalance + Payment - Bill
+        // Therefore: PrevBalance = System Balance - Payment + Bill (roughly)
+        // To make it clearer, we will build it forward.
+        
+        let runningTotal = 0;
+        
+        // 1. Start with Monthly Bill
+        mathRowsHtml += `<div class="math-row"><span>Monthly Bill (${acc.plan.name}):</span><span>₱${planFee.toFixed(2)}</span></div>`;
+        runningTotal += planFee;
+
+        // 2. Add Charges
+        if (acc.charges) {
             acc.charges.forEach(c => {
-                // Only show charges if the account actually owes money (Balance is negative)
-                // or if the charge is very recent (this month)
-                const chargeDate = new Date(c.date);
-                const isRecent = chargeDate.getMonth() === today.getMonth();
-                
-                if (acc.excessLackingBalance < 0 || isRecent) {
-                   invoiceBody += `<div class="calc-row text-danger"><span>+ ${c.note}</span> <span>₱${Number(c.amount).toFixed(2)}</span></div>`;
-                   runningDue += Number(c.amount);
-                }
+                mathRowsHtml += `<div class="math-row math-indent" style="color:red;">+ Charge: ${c.note}</div>`;
+                mathRowsHtml += `<div class="math-row" style="text-align:right;"><span></span><span>₱${c.amount.toFixed(2)}</span></div>`;
+                runningTotal += c.amount;
             });
         }
 
-        // 3. Previous Balance Logic
-        // If Balance is NEGATIVE, they owe money (Insufficient/Arrears)
-        // If Balance is POSITIVE, they have credit (Advance)
-        // NOTE: acc.excessLackingBalance is the FINAL Net state. 
-        // To show the flow "Bill +/- Prev = Net", we need to reverse the math slightly visually.
-        
-        const currentSystemBalance = acc.excessLackingBalance;
-        
-        // The "Previous Balance" before this new bill was added would be:
-        // SystemBalance (which includes this bill implicitly in your logic usually) 
-        // Let's rely on the logic: The Bill is 500. 
-        // If Net Balance is -600, it means they owed 100 previously.
-        // If Net Balance is +200, it means they had 700 previously.
-        
-        // However, specifically for the display requested:
-        // We want to show: Bill (500) +/- Prev Balance = Total Due.
-        
-        // Check if they have Arrears (Lacking)
-        // We check if the System Balance is 'worse' than the plan fee (indicating old debt)
-        // OR if they have excess that reduces the bill.
-
-        let totalToPay = 0;
-
-        if (currentSystemBalance < 0) {
-            // Case: Lacking. 
-            // Example: Balance is -600. Plan is 500. Means 100 Arrears.
-            // But wait, in your system, excessLackingBalance is calculated based on Payments vs (Fees accumulated).
-            // Let's simplify: 
-            
-            // Total Due IS strictly the Absolute Value of a Negative Balance.
-            // If Balance is positive, Total Due is 0 (or technically negative/credit).
-            
-            totalToPay = Math.abs(currentSystemBalance);
-            
-            // Calculate what the "Previous" amount was for display
-            const prevLacking = totalToPay - runningDue; 
-            
-            if (prevLacking > 0.01) {
-                 invoiceBody += `<div class="calc-row text-danger"><span>+ Prev. Insufficient Bal.</span> <span>₱${prevLacking.toFixed(2)}</span></div>`;
-            }
-        } else {
-            // Case: Excess/Advance or Clean.
-            // Example: Balance is 200. Plan is 500.
-            // Total Due should be 300. 
-            // But `excessLackingBalance` holds the *Remaining* money. 
-            // If `excessLackingBalance` is 200, it means they have 200 *available*.
-            // It does NOT mean they owe 300. It means they have +200.
-            // This implies the bill was covered, OR we are projecting the next bill.
-            
-            // To show the "Deduction" logic:
-            // Total Due = Plan Fee - Available Balance.
-            
-            totalToPay = planFee - currentSystemBalance;
-            if(totalToPay < 0) totalToPay = 0; // Fully covered
-            
-            invoiceBody += `<div class="calc-row text-success"><span>- Less: Prev. Excess/Credit</span> <span>(₱${currentSystemBalance.toFixed(2)})</span></div>`;
+        // 3. Less Discounts
+        if (acc.discounts) {
+            acc.discounts.forEach(d => {
+                mathRowsHtml += `<div class="math-row math-indent" style="color:green;">- Discount: ${d.note}</div>`;
+                mathRowsHtml += `<div class="math-row"><span></span><span>(₱${d.amount.toFixed(2)})</span></div>`;
+                runningTotal -= d.amount;
+            });
         }
 
-        displayTotal = totalToPay;
-        invoiceBody += `<div class="calc-row total"><span>TOTAL AMOUNT DUE</span> <span>₱${displayTotal.toFixed(2)}</span></div>`;
-    }
+        // 4. Handle "Previous Balance" Context
+        // This is complex because the system stores a net result. 
+        // We will display the logic simply:
+        
+        mathRowsHtml += `<div class="math-row subtotal"><span>Subtotal Bill:</span><span>₱${runningTotal.toFixed(2)}</span></div>`;
 
-    // =========================================================
-    // SCENARIO B: RECEIPT (PAYMENT FLOW)
-    // Flow: Amount Paid - Bill = Change/Balance
-    // =========================================================
-    else {
-        // Get the Last Payment details
-        if (acc.payments.length === 0) {
-             invoiceBody += `<div style="text-align:center">No payments found.</div>`;
-        } else {
-            const lastPay = acc.payments[acc.payments.length - 1];
-            mainDate = new Date(lastPay.date).toLocaleDateString();
-            mainRef = lastPay.referenceNumber || "CASH";
-            const paidAmt = Number(lastPay.amount);
+        // 5. THE PAYMENT
+        const amountPaid = Number(lastPay.amount);
+        mathRowsHtml += `<div class="math-row" style="font-size:13px; font-weight:bold;"><span>LESS: AMOUNT PAID:</span><span>(₱${amountPaid.toFixed(2)})</span></div>`;
+        
+        // 6. CALCULATE RESULTING BALANCE (The "Flow")
+        // Logic: Subtotal - Paid = Result
+        // If Result is Positive: Lacking/Insufficient
+        // If Result is Negative: Excess/Change/Advance
+        
+        // Note: We need to factor in the *actual* system balance to be accurate to the database
+        // Current System Balance (excessLackingBalance) represents the final state.
+        
+        const finalBalance = acc.excessLackingBalance;
+        
+        if (finalBalance < 0) {
+            // Negative in system means Debt/Lacking
+            const lacking = Math.abs(finalBalance);
+            mathRowsHtml += `
+                <div class="math-row final-total" style="color:red; border-bottom:none;">
+                    <span>INSUFFICIENT / LACKING:</span>
+                    <span>₱${lacking.toFixed(2)}</span>
+                </div>
+                <div style="font-size:11px; font-style:italic; text-align:center;">
+                    (Added to next month's bill)
+                </div>
+            `;
+            // Show Next Month Forecast
+            const nextTotal = lacking + planFee;
+             mathRowsHtml += `
+                <div class="math-row" style="border-top:1px dashed #ccc; margin-top:5px; padding-top:5px;">
+                    <span>Next Month Total Due:</span>
+                    <span>₱${nextTotal.toFixed(2)}</span>
+                </div>`;
 
-            // 1. Amount Paid
-            invoiceBody += `<div class="calc-row total" style="border-top:none; margin-bottom:10px; font-size:16px;"><span>AMOUNT PAID</span> <span>₱${paidAmt.toFixed(2)}</span></div>`;
-
-            // 2. Less: Current Monthly Bill
-            invoiceBody += `<div class="calc-row"><span>Less: Monthly Bill</span> <span>- ₱${planFee.toFixed(2)}</span></div>`;
+        } else if (finalBalance >= 0) {
+            // Positive in system means Credit/Advance
+            mathRowsHtml += `
+                <div class="math-row final-total" style="color:green; border-bottom:none;">
+                    <span>CHANGE / ADVANCE:</span>
+                    <span>₱${finalBalance.toFixed(2)}</span>
+                </div>
+                <div style="font-size:11px; font-style:italic; text-align:center;">
+                    (Deducted from next month's bill)
+                </div>
+            `;
             
-            // 3. Subtotal (The immediate result)
-            let immediateResult = paidAmt - planFee;
-            let resultLabel = immediateResult >= 0 ? "Excess Payment" : "Insufficient Payment";
-            let resultColor = immediateResult >= 0 ? "text-success" : "text-danger";
+            // Show Next Month Forecast
+            let nextTotal = planFee - finalBalance;
+            if(nextTotal < 0) nextTotal = 0;
             
-            invoiceBody += `<div class="calc-row sub-result ${resultColor}"><span>= ${resultLabel}</span> <span>₱${immediateResult.toFixed(2)}</span></div>`;
-
-            // 4. Charges/Penalties deduction (if they exist and affected the balance)
-            // If the account has charges, we visually deduct them here to show transparency
-             if (acc.charges && acc.charges.length > 0) {
-                 // Sum recent charges for display
-                 let recentCharges = 0;
-                 acc.charges.forEach(c => {
-                     // Simple check: if charge date is this month
-                     if(new Date(c.date).getMonth() === new Date(lastPay.date).getMonth()) {
-                         invoiceBody += `<div class="calc-row text-danger"><span>Less: ${c.note}</span> <span>- ₱${Number(c.amount).toFixed(2)}</span></div>`;
-                         recentCharges += Number(c.amount);
-                     }
-                 });
-                 immediateResult -= recentCharges;
-             }
-
-            // 5. Add Discounts
-             if (acc.discounts) {
-                 acc.discounts.forEach(d => {
-                      if(new Date(d.date).getMonth() === new Date(lastPay.date).getMonth()) {
-                         invoiceBody += `<div class="calc-row text-success"><span>Add: Discount (${d.note})</span> <span>+ ₱${Number(d.amount).toFixed(2)}</span></div>`;
-                         immediateResult += Number(d.amount);
-                      }
-                 });
-             }
-
-            // 6. Handle Previous Balance Context (The Flow)
-            // The `immediateResult` is just math of (Pay - Bill).
-            // But the *Actual System Balance* (`acc.excessLackingBalance`) includes history.
-            // To show the math: `Ending Balance` = `Immediate Result` + `Previous Balance`.
-            
-            // Calculate what the balance was *before* this transaction sequence
-            // Previous Balance = FinalSystemBalance - ImmediateResult
-            let impliedPreviousBalance = acc.excessLackingBalance - immediateResult;
-
-            // Only show previous balance line if it's significant (not 0)
-            if (Math.abs(impliedPreviousBalance) > 0.05) {
-                if (impliedPreviousBalance < 0) {
-                     // They owed money previously
-                     invoiceBody += `<div class="calc-row text-danger"><span>Less: Prev. Arrears/Lacking</span> <span>- ₱${Math.abs(impliedPreviousBalance).toFixed(2)}</span></div>`;
-                } else {
-                     // They had credit previously
-                     invoiceBody += `<div class="calc-row text-success"><span>Add: Prev. Wallet Balance</span> <span>+ ₱${impliedPreviousBalance.toFixed(2)}</span></div>`;
-                }
-            }
-
-            // 7. Final Ending Balance
-            displayTotal = acc.excessLackingBalance;
-            let finalLabel = displayTotal >= 0 ? "TOTAL ENDING BALANCE (Advance)" : "TOTAL REMAINING LACKING";
-            let finalColor = displayTotal >= 0 ? "color:#000;" : "color:red;";
-
-            invoiceBody += `<div class="calc-row total" style="${finalColor}"><span>${finalLabel}</span> <span>₱${displayTotal.toFixed(2)}</span></div>`;
-            
-            // 8. Scenario: Advance covering next month (User Request)
-            // If they have 500+ balance, show it covers next month
-            if (displayTotal >= planFee) {
-                 invoiceBody += `<div class="calc-note">Note: ₱${planFee} will be deducted on next billing.</div>`;
-            }
+             mathRowsHtml += `
+                <div class="math-row" style="border-top:1px dashed #ccc; margin-top:5px; padding-top:5px;">
+                    <span>Next Month Total Due:</span>
+                    <span>₱${nextTotal.toFixed(2)}</span>
+                </div>`;
         }
     }
 
-    // Generate Permit HTML
+    // --- 3. PERMITS & HTML ASSEMBLY ---
     let permitHtml = "";
-    if (permits.length > 0) {
+    if (invoiceSettings.permits && invoiceSettings.permits.length > 0) {
         permitHtml = `<div class="inv-permits">`;
-        permits.forEach(p => { permitHtml += `<span>${p.name}: ${p.number}</span> `; });
+        invoiceSettings.permits.forEach(p => { permitHtml += `<span>${p.name}: ${p.number}</span> `; });
         permitHtml += `</div>`;
     }
 
-    // Render HTML
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -4297,21 +4281,22 @@ function generateInvoiceHtml(acc, isReminder = false) {
         </div>
 
         <div class="therm-info">
-            <div class="therm-row"><span>Date:</span> <span>${mainDate}</span></div>
-            <div class="therm-row"><span>Ref #:</span> <b>${mainRef}</b></div>
+            <div class="therm-row"><span>Date:</span> <span>${dateStr}</span></div>
+            <div class="therm-row"><span>Ref #:</span> <b>${refStr}</b></div>
             <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
-            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name}</span></div>
         </div>
 
         <div class="therm-divider"></div>
+        <div style="font-weight:800; text-align:center; font-size:14px; margin-bottom:10px;">
+            ${title}
+        </div>
+
+        <div class="math-flow-container">
+            ${mathRowsHtml}
+        </div>
         
-        <div style="padding: 5px 0;">
-            ${invoiceBody}
-        </div>
-        <div class="therm-divider"></div>
-
         <div style="margin-top:10px; font-size:12px; text-align:center; padding:5px; border:1px solid #000;">
             <strong>NEXT BILLING DATE:</strong><br>
             <span style="font-size:14px; font-weight:bold;">${nextBillString}</span>
@@ -4332,6 +4317,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
     </div>
     `;
 }
+
 
 
 
