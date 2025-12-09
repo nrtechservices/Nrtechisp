@@ -4043,7 +4043,7 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 
 /* =========================================
-   UPDATED INVOICE GENERATOR (REQUESTS APPLIED)
+   UPDATED INVOICE GENERATOR (SPECIFIC FLOW)
    ========================================= */
 function generateInvoiceHtml(acc, isReminder = false) {
     const today = new Date();
@@ -4053,157 +4053,118 @@ function generateInvoiceHtml(acc, isReminder = false) {
     const vatRate = invoiceSettings.vatRate || 0; 
     const permits = invoiceSettings.permits || [];
 
-    // 2. Setup Variables
-    let mainRef = "REMINDER";
+    // 2. Setup Header Details
+    let mainRef = isReminder ? "BILLING" : "RECEIPT";
     let mainDate = today.toLocaleDateString();
-    let paymentAmount = 0;
     
-    // 3. Forced Date Logic (Request #3: Force 20th)
-    // We calculate the Next Bill date based on the account's nextDue, but force the day to 20.
+    // Default to the 20th of the current/next month for the "Due Date" display
     const nextDueObj = new Date(acc.nextDue);
     const nextBillMonth = nextDueObj.toLocaleString('default', { month: 'long', year: 'numeric' });
-    const nextBillString = `${nextBillMonth} 20`; // Forces "Month 20"
+    const nextBillString = `${nextBillMonth} 20`; 
 
-    // 4. Mode Specific Logic
-    let invoiceRows = ""; // This will hold our specific line items
-    let displayTotal = 0;
-    let balanceNote = "";
-    
-    // --- MODE A: PAYMENT RECEIPT (Shows what just happened) ---
+    // 3. Initialize Invoice Rows and Math
+    let invoiceRows = ""; 
+    let runningTotal = 0;
+
+    // --- SECTION A: PAYMENT INFO (Only for Receipts) ---
     if (!isReminder && acc.payments.length > 0) {
         const lastPay = acc.payments[acc.payments.length - 1];
         mainDate = new Date(lastPay.date).toLocaleDateString();
         mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH-REF" : "CASH");
-        paymentAmount = lastPay.amount;
-
-        // ROW: Amount Paid by Client
+        
+        // Show what they just paid at the top
         invoiceRows += `
-            <div class="therm-row" style="font-weight:bold; font-size:13px;">
+            <div class="therm-row" style="font-weight:bold; font-size:13px; border-bottom: 1px solid #ddd; padding-bottom:5px; margin-bottom:5px;">
                 <span>AMOUNT TENDERED</span>
-                <span>₱${paymentAmount.toFixed(2)}</span>
+                <span>₱${Number(lastPay.amount).toFixed(2)}</span>
             </div>
-            <div class="therm-divider"></div>
         `;
+    }
 
-        // Logic: Show how the payment was applied (Flow of Payment)
-        // 1. Plan Fee
-        invoiceRows += `<div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${planFee.toFixed(2)}</span></div>`;
-
-        // 2. Excess/Lacking Logic
-        // We look at the payment logic. If the payment didn't cover full fee, or covered more.
-        // For visual simplicity in the receipt, we show the current Account Balance status.
-        if (acc.excessLackingBalance < 0) {
-            // They still owe money
-             invoiceRows += `<div class="therm-row" style="color:red;"><span>Remaining Lacking</span><span>₱${Math.abs(acc.excessLackingBalance).toFixed(2)}</span></div>`;
-        } else if (acc.excessLackingBalance > 0) {
-            // They have excess
-             invoiceRows += `<div class="therm-row" style="color:green;"><span>Excess / Advance</span><span>- ₱${Math.abs(acc.excessLackingBalance).toFixed(2)}</span></div>`;
-        }
-        
-        displayTotal = paymentAmount; // For receipt, Total is what they paid
-    } 
+    // --- SECTION B: BILLING FLOW CALCULATION ---
     
-    // --- MODE B: BILLING REMINDER (Shows what is owed) ---
-    else {
-        // 1. Calculate Unpaid Months (Request #2)
-        // Logic: Iterate from nextDue date up to Today
-        let tempDate = new Date(acc.nextDue);
-        let unpaidMonths = [];
-        let monthsCount = 0;
+    // 1. Current Monthly Plan
+    invoiceRows += `<div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${planFee.toFixed(2)}</span></div>`;
+    runningTotal += planFee;
+
+    // 2. Previous Insufficient Amount (Lacking)
+    // Logic: If balance is negative, they owe money.
+    if (acc.excessLackingBalance < 0) {
+        const lacking = Math.abs(acc.excessLackingBalance);
+        const label = isReminder ? "Previous Insufficient Amount" : "Insufficient Amount";
         
-        // Safety: Prevent infinite loop if data is weird, max 24 months
-        while(tempDate < today && monthsCount < 24) {
-            // If the date is in the past (before today), it's unpaid
-            unpaidMonths.push(tempDate.toLocaleString('default', { month: 'short', year: '2-digit' }));
-            tempDate.setMonth(tempDate.getMonth() + 1);
-            monthsCount++;
-        }
+        invoiceRows += `<div class="therm-row" style="color:red;"><span>${label}</span><span>₱${lacking.toFixed(2)}</span></div>`;
+        // Note: In your system logic, 'excessLackingBalance' is the result. 
+        // To show the flow properly, we visually add it here to explain the Total Due.
+        runningTotal += lacking; 
+    }
+
+    // 3. Previous Balance Amount (Excess/Advance)
+    // Logic: If balance is positive, they have credit.
+    if (acc.excessLackingBalance > 0) {
+        const excess = acc.excessLackingBalance;
+        const label = isReminder ? "Previous Balance Amount" : "Balance Amount";
         
-        // If nextDue is in the future, but they have a negative balance, it means they owe partial
-        if(unpaidMonths.length === 0 && acc.excessLackingBalance < 0) {
-             unpaidMonths.push("Balance Forwarded");
-        }
+        invoiceRows += `<div class="therm-row" style="color:green;"><span>${label}</span><span>- ₱${excess.toFixed(2)}</span></div>`;
+        runningTotal -= excess;
+    }
 
-        // ROW: Plan Fee Calculation
-        const totalPlanDue = planFee * Math.max(1, unpaidMonths.length);
-        invoiceRows += `<div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${planFee.toFixed(2)}</span></div>`;
+    // 4. Charges (Specific Note, No [+])
+    if (acc.charges) {
+        acc.charges.forEach(c => {
+            // For receipts, we usually only show charges relevant to the specific period or all unpaid.
+            // For simplicity in this flow, we show them as additions to the bill.
+            invoiceRows += `<div class="therm-row" style="color:#d32f2f;"><span>${c.note}</span><span>₱${c.amount.toFixed(2)}</span></div>`;
+            runningTotal += c.amount;
+        });
+    }
+
+    // 5. Discounts (Specific Note, No [-])
+    if (acc.discounts) {
+        acc.discounts.forEach(d => {
+            invoiceRows += `<div class="therm-row" style="color:green;"><span>${d.note}</span><span>- ₱${d.amount.toFixed(2)}</span></div>`;
+            runningTotal -= d.amount;
+        });
+    }
+
+    // 6. Adjust Running Total Logic
+    // Because 'excessLackingBalance' in your specific system ALREADY includes payments, charges, and discounts,
+    // we need to be careful not to double count math if we are just displaying status.
+    // However, to make the "Bill" look correct to the client:
+    
+    let displayTotal = 0;
+    
+    if(isReminder) {
+        // For a Bill: Plan + Charges - Discounts + (Previous Insufficient) - (Previous Balance)
+        // Since your system stores the *result* in excessLackingBalance:
+        // If Balance is Negative (Owe): That IS the total due (roughly).
+        // If Balance is Positive (Credit): They owe 0.
         
-        // ROW: Unpaid Months Specifics
-        if(unpaidMonths.length > 0) {
-             invoiceRows += `
-             <div class="therm-row" style="color:var(--accent-2); font-size:10px; margin-bottom:5px;">
-                <span>Unpaid: ${unpaidMonths.join(', ')}</span>
-                <span>x${unpaidMonths.length}</span>
-             </div>`;
-        }
-
-        // ROW: Charges (Flow of Payment)
-        let totalCharges = 0;
-        if (acc.charges) {
-            acc.charges.forEach(c => {
-                // Show all unpaid charges for reminder
-                invoiceRows += `<div class="therm-row" style="color:#d32f2f;"><span>[+] ${c.note}</span><span>₱${c.amount.toFixed(2)}</span></div>`;
-                totalCharges += c.amount;
-            });
-        }
-
-        // ROW: Discounts (Flow of Payment)
-        let totalDiscount = 0;
-        if (acc.discounts) {
-            acc.discounts.forEach(d => {
-                invoiceRows += `<div class="therm-row" style="color:green;"><span>[-] ${d.note}</span><span>₱${d.amount.toFixed(2)}</span></div>`;
-                totalDiscount += d.amount;
-            });
-        }
-
-        // ROW: Previous Balance (Lacking/Excess)
-        // If balance is negative, it's added to total. If positive, deducted.
-        // Note: The logic in your system combines balance into nextDue, so we handle display carefully.
-        // To keep it simple and accurate to the requested "Flow":
-        
-        let grandTotal = totalPlanDue + totalCharges - totalDiscount;
-
-        // Adjust by current wallet balance
         if (acc.excessLackingBalance < 0) {
-             // Logic: If balance is negative, it is INCLUDED in the calculation above effectively
-             // But to show it explicitly as requested:
-             // We recalculate based on exact wallet balance logic
-             grandTotal = Math.abs(acc.excessLackingBalance) + totalPlanDue; 
-             // Note: Depending on your point logic, we simplify to:
-             // Total Due = Plan * Months + Charges - Discounts + (Previous Debt)
-             // For this display, we stick to the calculated 'ExcessLackingBalance' if it's negative
-        }
-        
-        // Override strict math with the Account's actual computed need
-        // Logic: (Plan Fee * Months) - (Advance) + (Lacking)
-        let neededAmount = 0;
-        
-        // Simple logic: We want to show what they owe NOW.
-        // If balance is negative, that is the TOTAL owed (includes previous months).
-        if(acc.excessLackingBalance < 0) {
-            neededAmount = Math.abs(acc.excessLackingBalance);
-            // If neededAmount is huge, break it down visually
-             invoiceRows += `<div class="therm-row"><span>Total Accumulated Due</span><span>₱${neededAmount.toFixed(2)}</span></div>`;
-             displayTotal = neededAmount;
+            displayTotal = Math.abs(acc.excessLackingBalance);
+            // If the math above (runningTotal) doesn't match the actual system balance, 
+            // we override it with the actual system balance to ensure accuracy.
         } else {
-            // Balance is 0 or Positive. They just owe the upcoming month.
-            neededAmount = planFee - acc.excessLackingBalance;
-            if(acc.excessLackingBalance > 0) {
-                 invoiceRows += `<div class="therm-row" style="color:green;"><span>Less Advance Wallet</span><span>- ₱${acc.excessLackingBalance.toFixed(2)}</span></div>`;
-            }
-            displayTotal = Math.max(0, neededAmount);
+            // They have money in the bank. They might owe nothing, or just the difference.
+            // If Plan is 1000 and Balance is 200, they owe 800.
+            // In your system, excessLackingBalance calculates this automatically.
+            // If excessLackingBalance is positive, Total Due is 0 (covered).
+            // If excessLackingBalance is still positive after deduction, it remains 0.
+            
+            // To be safe and accurate to your system's core math:
+            if(acc.excessLackingBalance >= planFee) displayTotal = 0; 
+            else displayTotal = planFee - acc.excessLackingBalance; 
+        }
+    } else {
+        // For a Receipt: 
+        // We usually display the Total Paid as the bottom line, or the remaining balance.
+        // Let's show the "Net Applied" amount or the Payment Amount.
+        if(acc.payments.length > 0) {
+            displayTotal = acc.payments[acc.payments.length-1].amount;
         }
     }
 
-    // 5. Generate Permit HTML (Header)
-    let permitHtml = "";
-    if (permits.length > 0) {
-        permitHtml = `<div class="inv-permits">`;
-        permits.forEach(p => { permitHtml += `<span>${p.name}: ${p.number}</span> `; });
-        permitHtml += `</div>`;
-    }
-
-    // 6. Generate VAT HTML (If settings exist)
+    // 7. VAT Calculation (Visual only, added to display)
     if (vatRate > 0) {
         const vatAmount = displayTotal * (vatRate / 100);
         invoiceRows += `
@@ -4214,7 +4175,15 @@ function generateInvoiceHtml(acc, isReminder = false) {
         displayTotal += vatAmount;
     }
 
-    // 7. Render HTML
+    // Generate Permit HTML
+    let permitHtml = "";
+    if (permits.length > 0) {
+        permitHtml = `<div class="inv-permits">`;
+        permits.forEach(p => { permitHtml += `<span>${p.name}: ${p.number}</span> `; });
+        permitHtml += `</div>`;
+    }
+
+    // Render HTML
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -5503,4 +5472,4 @@ function applySpecificPointDeduction(acc) {
 </body>
 </html>
 
-  
+   
