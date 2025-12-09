@@ -911,11 +911,32 @@
     margin-bottom: 10px;
 }
 
+/* --- REPLACE/ADD THIS IN YOUR <style> SECTION --- */
+
 .therm-row {
     display: flex;
     justify-content: space-between;
     margin-bottom: 4px;
+    font-size: 12px;
+    align-items: center; /* Ensures text aligns vertically */
 }
+
+/* New class for the specific bill items to ensure strict alignment */
+.therm-item-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    margin-bottom: 2px;
+    border-bottom: 1px dotted #ddd; /* Light guide line */
+    padding-bottom: 2px;
+}
+
+.therm-item-row span:last-child {
+    font-weight: 700;
+    text-align: right;
+    min-width: 80px; /* Forces alignment column width */
+}
+
 
 .therm-divider {
     border-top: 1px dashed #000;
@@ -4043,150 +4064,157 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 
 /* =========================================
-   INVOICE GENERATOR (UPDATED FOR DATES, GCASH REF & MODE)
+   UPDATED INVOICE GENERATOR (Aligned, Specific Months, Next Due)
    ========================================= */
 function generateInvoiceHtml(acc, isReminder = false) {
     const today = new Date();
     const planFee = acc.plan.fee;
     
     // 1. Get Settings
-    const vatRate = invoiceSettings.vatRate || 0; // Default 0 (Hidden)
+    const vatRate = invoiceSettings.vatRate || 0; 
     const permits = invoiceSettings.permits || [];
 
-    // 2. Determine Transaction Context
+    // 2. Setup Variables
     let mainRef = "REMINDER";
     let mainDate = today.toLocaleDateString();
-    let coveredMonthsStr = "N/A";
-    
-    // Totals Calculation Variables
-    let subtotal = 0;
-    let totalDiscount = 0;
-    let totalCharges = 0;
-    let penaltyTotal = 0;
-    let balanceApplied = 0; // Lacking or Excess from previous
-    let paymentAmount = 0;
-
-    // --- LOGIC: What are we printing? ---
-    if (!isReminder && acc.payments.length > 0) {
-        // RECEIPT MODE (Based on Last Payment)
-        const lastPay = acc.payments[acc.payments.length - 1];
-        mainDate = new Date(lastPay.date).toLocaleDateString();
-        mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH-REF" : "CASH");
-        paymentAmount = lastPay.amount;
-
-        // Coverage
-        if (lastPay.coveredMonths && lastPay.coveredMonths.length > 0) {
-            coveredMonthsStr = lastPay.coveredMonths.join(", ");
-        } else {
-            coveredMonthsStr = "Partial / Balance Payment";
-        }
-        
-        // Base Subtotal is usually the plan fee * months covered, 
-        // OR the payment amount if it's partial.
-        // For simplicity in receipt, we start with the Payment Amount as the base credit.
-        subtotal = paymentAmount; 
-
-    } else {
-        // REMINDER MODE (Total Debt)
-        const nextDueParts = acc.nextDue.split('-');
-        // Calculate raw months due
-        const due = new Date(nextDueParts[0], nextDueParts[1]-1, 20);
-        const monthsDiff = (today.getFullYear() - due.getFullYear()) * 12 + (today.getMonth() - due.getMonth());
-        const monthsOwed = Math.max(1, monthsDiff + 1); // At least 1 month
-        
-        subtotal = planFee * monthsOwed;
-        
-        // If there is lacking balance (negative excess), add it
-        if (acc.excessLackingBalance < 0) {
-            balanceApplied = Math.abs(acc.excessLackingBalance); // Add debt
-        }
-    }
-
-    // 3. Process Specific Charges/Discounts for the period
-    // We filter charges/discounts that happened in the current month (for receipt) 
-    // or all unpaid ones (for reminder - simplified here to current month for display context)
-    const invMonth = new Date(mainDate).toISOString().slice(0, 7);
-    
-    let itemsHtml = "";
-
-    // Add Charges
-    if (acc.charges) {
-        acc.charges.forEach(c => {
-            if (c.date.startsWith(invMonth)) {
-                itemsHtml += `
-                <div class="inv-detail-row" style="color:#d32f2f;">
-                    <span>[+] ${c.note}</span>
-                    <span>₱${c.amount.toFixed(2)}</span>
-                </div>`;
-                totalCharges += c.amount;
-            }
-        });
-    }
-
-    // Add Discounts
-    if (acc.discounts) {
-        acc.discounts.forEach(d => {
-            if (d.date.startsWith(invMonth)) {
-                itemsHtml += `
-                <div class="inv-detail-row" style="color:green;">
-                    <span>[-] ${d.note}</span>
-                    <span>₱${d.amount.toFixed(2)}</span>
-                </div>`;
-                totalDiscount += d.amount;
-            }
-        });
-    }
-
-    // 4. Calculate Final Totals
-    // Base amount (Plan Fee usually) + Charges - Discounts + Tax
-    
-    // For Receipt: We show what was PAID.
-    // For Reminder: We show what is DUE.
-    
     let displayTotal = 0;
-    let vatAmount = 0;
+    let itemsHtml = "";
+    let footerNote = "";
+    
+    // Calculate Next Billing Date (Always the 20th of the Next Due Month)
+    const nextDueObj = new Date(acc.nextDue);
+    const nextBillDateStr = nextDueObj.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 
-    if(isReminder) {
-        // Reminder Logic
-        let taxableBase = subtotal + totalCharges + balanceApplied - totalDiscount;
-        if (vatRate > 0) {
-            vatAmount = taxableBase * (vatRate / 100);
+    // --- LOGIC A: BILLING REMINDER (The complex logic) ---
+    if (isReminder) {
+        mainRef = "BILL-STMT";
+        
+        // 1. Identify Specific Unpaid Months
+        // We start from the 'nextDue' date and count up to today
+        let unpaidMonthsList = [];
+        let cursorDate = new Date(acc.nextDue);
+        
+        // If cursor is in future, it means they are paid up, so we show just the upcoming month
+        if (cursorDate > today) {
+            unpaidMonthsList.push(cursorDate);
+        } else {
+            // They are behind or due now. Loop until we reach current month + 1 buffer
+            // Simple logic: Show what is currently due based on the 'nextDue' date pointer
+            let monthDiff = (today.getFullYear() - cursorDate.getFullYear()) * 12 + (today.getMonth() - cursorDate.getMonth());
+            // Always show at least 1 month
+            let monthsToBill = Math.max(1, monthDiff + 1);
+
+            for(let i=0; i<monthsToBill; i++) {
+                let d = new Date(cursorDate);
+                d.setMonth(d.getMonth() + i);
+                unpaidMonthsList.push(d);
+            }
         }
-        displayTotal = taxableBase + vatAmount;
-    } else {
-        // Receipt Logic (The Amount Paid acts as the Total)
-        // We back-calculate to show breakdown roughly, or just list the items paid.
-        displayTotal = paymentAmount;
-        // VAT logic on receipt: usually VAT is inclusive or exclusive. 
-        // Let's assume inclusive for simple receipt display, or additive if configured.
-        if (vatRate > 0) {
-             vatAmount = paymentAmount * (vatRate / 100);
-             // If additive, we'd add it. If inclusive, we extract it. 
-             // Request implies "add it to the total".
-             // displayTotal += vatAmount; // (Optional: depending on business logic)
+
+        // 2. Generate HTML for Months
+        let subtotalMonths = 0;
+        unpaidMonthsList.forEach(dateObj => {
+            const monthName = dateObj.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+            itemsHtml += `
+            <div class="therm-item-row">
+                <span>Bill: ${monthName}</span>
+                <span>₱${planFee.toFixed(2)}</span>
+            </div>`;
+            subtotalMonths += planFee;
+        });
+
+        // 3. Handle Balance (Excess or Lacking)
+        // Logic: Total = (Months * Fee) - (Balance)
+        // If Balance is positive (Excess), it subtracts.
+        // If Balance is negative (Lacking), it adds (minus a negative is plus).
+        
+        const currentBalance = acc.excessLackingBalance;
+        let balanceLabel = "";
+        let balanceHtml = "";
+
+        if (currentBalance > 0) {
+            // User has Advance/Excess
+            balanceHtml = `
+            <div class="therm-item-row" style="color: green;">
+                <span>Less: Advance/Excess</span>
+                <span>- ₱${Math.abs(currentBalance).toFixed(2)}</span>
+            </div>`;
+        } else if (currentBalance < 0) {
+            // User has Lacking/Debt
+            balanceHtml = `
+            <div class="therm-item-row" style="color: red;">
+                <span>Add: Previous Lacking</span>
+                <span>+ ₱${Math.abs(currentBalance).toFixed(2)}</span>
+            </div>`;
         }
+
+        itemsHtml += balanceHtml;
+
+        // 4. Calculate Final Total Due
+        // Note: We subtract the balance because Positive Balance reduces debt, Negative Balance increases it.
+        displayTotal = subtotalMonths - currentBalance;
+        
+        // Safety: Don't show negative due if they are super advanced (though usually Reminder isn't sent then)
+        if(displayTotal < 0) displayTotal = 0;
+
+        footerNote = "Please pay before due date to avoid disconnection.";
+
+    } 
+    // --- LOGIC B: OFFICIAL RECEIPT (Simple Payment Proof) ---
+    else {
+        // Use last payment details
+        if(acc.payments.length > 0) {
+            const lastPay = acc.payments[acc.payments.length - 1];
+            mainDate = new Date(lastPay.date).toLocaleDateString();
+            mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH" : "CASH");
+            displayTotal = lastPay.amount;
+
+            // Show exactly what was paid
+            itemsHtml += `
+            <div class="therm-item-row">
+                <span>Payment Amount</span>
+                <span>₱${lastPay.amount.toFixed(2)}</span>
+            </div>`;
+
+            if(lastPay.surchargeApplied > 0) {
+                 itemsHtml += `
+                <div class="therm-item-row" style="color:red">
+                    <span>Penalty Fee</span>
+                    <span>(Incl)</span>
+                </div>`;
+            }
+            
+            // Show Coverage
+            let coverage = lastPay.coveredMonths && lastPay.coveredMonths.length > 0 
+                ? lastPay.coveredMonths.join(", ") 
+                : "Account Balance / Partial";
+                
+            itemsHtml += `
+            <div style="margin-top:5px; font-size:10px; color:#555;">
+                For: ${coverage}
+            </div>`;
+
+        } else {
+            // Fallback if no payments exist
+            displayTotal = 0;
+            itemsHtml = `<div class="therm-row"><span>No payment record</span><span>0.00</span></div>`;
+        }
+        
+        footerNote = "This serves as your proof of payment.";
     }
 
-    // 5. Generate Permit HTML
+    // 5. Add Extra Charges/Discounts (Simplified: Just listing them if they exist in balance calc)
+    // For specific monthly display, the Balance Logic in Reminder handles the math.
+    
+    // 6. Generate Permit HTML (Optional)
     let permitHtml = "";
     if (permits.length > 0) {
         permitHtml = `<div class="inv-permits">`;
-        permits.forEach(p => {
-            permitHtml += `<span>${p.name}: ${p.number}</span> &nbsp;|&nbsp; `;
-        });
+        permits.forEach(p => { permitHtml += `<span>${p.name}: ${p.number}</span> `; });
         permitHtml += `</div>`;
     }
 
-    // 6. Generate VAT HTML (Hidden if 0)
-    let vatHtml = "";
-    if (vatRate > 0) {
-        vatHtml = `
-        <div class="inv-detail-row">
-            <span>VAT (${vatRate}%)</span>
-            <span>₱${vatAmount.toFixed(2)}</span>
-        </div>`;
-    }
-
+    // 7. Render Final HTML
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -4200,9 +4228,9 @@ function generateInvoiceHtml(acc, isReminder = false) {
         <div class="therm-info">
             <div class="therm-row"><span>Date:</span> <span>${mainDate}</span></div>
             <div class="therm-row"><span>Ref #:</span> <b>${mainRef}</b></div>
-            <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
+            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name}</span></div>
         </div>
 
         <div class="therm-divider"></div>
@@ -4210,35 +4238,20 @@ function generateInvoiceHtml(acc, isReminder = false) {
             ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
         </div>
 
-        <div class="inv-detail-row"><span>Plan Fee</span><span>₱${acc.plan.fee.toFixed(2)}</span></div>
-        
-        ${isReminder && balanceApplied > 0 ? 
-            `<div class="inv-detail-row" style="color:red;"><span>Prev. Lacking</span><span>₱${balanceApplied.toFixed(2)}</span></div>` : ''}
-
-        ${itemsHtml} 
-
-        ${vatHtml}
+        <div style="margin: 10px 0;">
+            ${itemsHtml}
+        </div>
 
         <div class="inv-subtotal-section">
-            <div class="therm-row" style="font-size: 16px; font-weight: 800;">
+            <div class="therm-row" style="font-size: 16px; font-weight: 800; border-top: 1px dashed #000; padding-top: 5px;">
                 <span>${isReminder ? 'TOTAL DUE' : 'AMOUNT PAID'}:</span>
                 <span>₱${displayTotal.toFixed(2)}</span>
             </div>
         </div>
         
-        <div style="margin-top:10px; font-size:11px; background:#f9f9f9; padding:5px; border:1px solid #eee;">
-            <strong>Covered Period:</strong><br>
-            ${coveredMonthsStr}
-            
-            ${!isReminder && acc.excessLackingBalance > 0 ? 
-                `<div style="margin-top:4px; border-top:1px dashed #ccc; padding-top:2px;">
-                 <strong>Excess/Advance:</strong> ₱${acc.excessLackingBalance.toFixed(2)} (Next Bill)
-                 </div>` : ''}
-                 
-            ${!isReminder && acc.excessLackingBalance < 0 ? 
-                `<div style="margin-top:4px; border-top:1px dashed #ccc; padding-top:2px; color:red;">
-                 <strong>Still Lacking:</strong> ₱${Math.abs(acc.excessLackingBalance).toFixed(2)}
-                 </div>` : ''}
+        <div style="margin-top:15px; background:#eee; padding:5px; text-align:center; border-radius:4px;">
+            <div style="font-size:10px; text-transform:uppercase; color:#555;">Next Billing Date</div>
+            <div style="font-weight:800; font-size:14px;">${nextBillDateStr}</div>
         </div>
 
         <div class="therm-points-box">
@@ -4251,11 +4264,12 @@ function generateInvoiceHtml(acc, isReminder = false) {
         </div>
 
         <div class="therm-footer">
-            <i>${isReminder ? 'Please pay before due date.' : 'Thank you for your business!'}</i>
+            <i>${footerNote}</i>
         </div>
     </div>
     `;
 }
+
 
 
 
