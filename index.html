@@ -2209,10 +2209,8 @@ document.getElementById('toggleLoginPass').onclick = (e) => {
 document.getElementById('btnLogout').onclick = async () => {
     const shouldLogout = await customConfirm("Are you sure you want to log out?");
     if (shouldLogout) {
-        setLoginState(false);
+        performFullLogout();
         showToast("You have been logged out.", 'warning');
-        // Close settings modal if open
-        modalSettingsBackdrop.style.display = 'none';
     }
 };
 
@@ -2271,11 +2269,18 @@ function showSessionWarning() {
     }, 1000);
 }
 
-// 3. Perform the Logout
+// 3. Perform the Logout (UPDATED)
 function performAutoLogout() {
-    setLoginState(false);
-    activeAccountIndex = null;
-    activeClientAccount = null;
+    // Stop the countdown
+    clearInterval(countdownInterval);
+    
+    // Call the new cleaner function
+    performFullLogout();
+
+    // Show a nice Toast explaining why
+    showToast("⚠️ Session Expired due to inactivity. Redirected to Portal.", "error");
+}
+
     
     // Hide warning modal
     document.getElementById('sessionWarningBackdrop').style.display = 'none';
@@ -2286,7 +2291,7 @@ function performAutoLogout() {
     
     // Show a nice Toast instead of ugly alert
     showToast("⚠️ Session Expired due to inactivity.", "error");
-}
+
 
 // 4. Attach Event Listeners for User Activity
 const events = ['mousemove', 'keypress', 'click', 'scroll', 'touchstart'];
@@ -4880,18 +4885,21 @@ function renderClientPaymentHistory(account) {
 }
 
 document.getElementById('btnClientLogout').onclick = () => {
-    activeClientAccount = null;
+    // Remove the client session key
     localStorage.removeItem(CLIENT_LOGIN_KEY);
-    modalClientPortalBackdrop.style.display = 'none';
     
-    // Reset login modal to admin
-    isClientLoginMode = false;
+    // Perform the clean redirect
+    performFullLogout();
+    
+    showToast("Client logged out successfully.", 'success');
+};
+
     btnToggleLoginMode.textContent = 'Switch to Client Login';
     loginTitle.textContent = "N'RTECH Billing Portal Login";
     document.getElementById('forgotPasswordLink').style.display = 'inline-block';
     
     document.getElementById('loginModalBackdrop').style.display = 'flex';
-};
+
 
 // --- Client Payment (GCash) Modal Logic ---
 document.getElementById('btnClientPayNow').onclick = () => {
@@ -5484,6 +5492,38 @@ function applySpecificPointDeduction(acc) {
     }
 }
 
+/* =========================================
+   NEW: CENTRALIZED FULL LOGOUT FUNCTION
+   ========================================= */
+function performFullLogout() {
+    // 1. Set System State to Logged Out
+    setLoginState(false);
+    activeAccountIndex = null;
+    activeClientAccount = null;
+    
+    // 2. FORCE CLOSE ALL MODALS
+    // This loops through every single modal (Settings, Warning, Account, etc.) and hides them
+    const allModals = document.querySelectorAll('.modal-backdrop');
+    allModals.forEach(modal => {
+        modal.style.display = 'none';
+    });
+
+    // 3. Hide Notification Popup explicitly
+    document.getElementById('notificationPopup').style.display = 'none';
+
+    // 4. Clear sensitive fields
+    document.getElementById('loginPassword').value = '';
+    document.getElementById('loginUsername').value = '';
+
+    // 5. REDIRECT: Show the Login Portal
+    document.getElementById('loginModalBackdrop').style.display = 'flex';
+    
+    // 6. Reset Login Title to Default
+    isClientLoginMode = false;
+    document.getElementById('btnToggleLoginMode').textContent = 'Switch to Client Login';
+    document.querySelector('#loginModal h2').textContent = "N'RTECH Billing Portal Login";
+    document.getElementById('forgotPasswordLink').style.display = 'inline-block';
+}
 
 </script>
 </body>
