@@ -2749,6 +2749,7 @@ function renderClientTally(clientTally) {
 
 /* =========================================
    UPDATED CORE LOGIC: POINTS & REWARDS
+   With Smart Deduction (Ontime -> Advance -> Lost)
    ========================================= */
 function recomputePointsAndBalance(acc) {
     // 1. Reset Counters
@@ -2759,7 +2760,18 @@ function recomputePointsAndBalance(acc) {
 
     // Calculate Net Adjustments (Charges/Discounts)
     let netAdjustments = 0;
-    if(acc.charges) acc.charges.forEach(c => netAdjustments -= Number(c.amount));
+    // We will also count how many "Late Penalty" charges exist to calculate point deductions later
+    let penaltyCount = 0; 
+
+    if(acc.charges) {
+        acc.charges.forEach(c => {
+            netAdjustments -= Number(c.amount);
+            // Check if this charge is a Late Penalty (21st-25th)
+            if (c.note && c.note.includes("Late Penalty")) {
+                penaltyCount++;
+            }
+        });
+    }
     if(acc.discounts) acc.discounts.forEach(d => netAdjustments += Number(d.amount));
 
     // Initialize Wallet
@@ -2777,8 +2789,7 @@ function recomputePointsAndBalance(acc) {
         p.coveredMonths = []; 
 
         // PAY OFF MONTHS
-        while (wallet >= getEffectiveMonthlyFee(acc)) {
-            const currentPlanFee = getEffectiveMonthlyFee(acc); // Handle 50% off or Free logic
+        
             
             // Check for Point Rewards Trigger (Before deducting)
             let rewardApplied = false;
@@ -2804,45 +2815,45 @@ function recomputePointsAndBalance(acc) {
 
             p.coveredMonths.push(getMonthName(coverageCursor));
 
-            // --- POINTING SYSTEM LOGIC ---
-            // Only apply points if this payment covered a specific month's bill
+            // --- POINTING SYSTEM LOGIC (GROSS EARNING) ---
             if (!rewardApplied) {
-                // Determine if payment is for current, future, or past
                 const isSameMonth = payDate.getFullYear() === coverageCursor.getFullYear() && 
                                     payDate.getMonth() === coverageCursor.getMonth();
                 const isBeforeMonth = payDate < new Date(coverageCursor.getFullYear(), coverageCursor.getMonth(), 1);
 
                 if (isSameMonth || isBeforeMonth) {
-                    // 1st to 19th -> Advance
                     if (payDay >= 1 && payDay <= 19) {
                         acc.points.advance++;
                     } 
-                    // 20th Only -> Ontime
                     else if (payDay === 20) {
                         acc.points.ontime++;
                     }
-                    // 21st+ -> No points (Penalty logic is handled in Automation function)
-                } else {
-                    // Late payment for past month
-                    acc.points.lost++; 
-                }
+                } 
+                // We don't add 'Lost' here for late payments immediately, 
+                // because 'Lost' is calculated based on the Penalty Events below.
             }
 
             // Move to next month
             coverageCursor = addMonths(coverageCursor, 1);
-        }
+        
         p.balanceAfter = wallet; 
     });
 
+    // --- APPLY PENALTY DEDUCTIONS (PRIORITY LOGIC) ---
+    // For every penalty charge found, we deduct 1 point.
+    // Priority: Less 1 Ontime -> Less 1 Advance -> Add 1 Lost
+    for (let i = 0; i < penaltyCount; i++) {
+        if (acc.points.ontime > 0) {
+            acc.points.ontime--; // Priority 1: Deduct Ontime
+        } else if (acc.points.advance > 0) {
+            acc.points.advance--; // Priority 2: Deduct Advance
+        } else {
+            acc.points.lost++; // Priority 3: No points to deduct, so mark as Lost (-1 effect)
+        }
+    }
+
     acc.excessLackingBalance = wallet; 
     acc.nextDue = coverageCursor.toISOString().slice(0, 10);
-    
-    // Status visual update is handled in renderAccounts using CSS
-}
-
-// Helper to get fee (can be expanded)
-function getEffectiveMonthlyFee(acc) {
-    return acc.plan.fee; 
 }
 
 
@@ -4090,16 +4101,18 @@ function generateInvoiceHtml(acc, isReminder = false) {
                 PAY: Bal + Penalty + Reconnection (₱150) to Reactivate.
             </div>`;
     } 
-    // 2. PENALTY WARNING (21st - 25th)
+        // 2. PENALTY WARNING (21st - 25th)
     else if (day >= 21 && day <= 25 && acc.excessLackingBalance < acc.plan.fee) {
         warningHtml = `
             <div class="inv-warning-box">
                 ⚠ LATE PAYMENT WARNING ⚠<br>
-                Date is 21st-25th.<br>
-                Points deducted & 10% Penalty added.<br>
+                10% Penalty Added.<br>
+                <strong>Loyalty Deduction: -1 Point</strong><br>
+                (Deducted from On-Time, then Advance)<br>
                 Pay before 26th to avoid Termination!
             </div>`;
     }
+
     // 3. REMINDER (Before 20th)
     else if (isReminder) {
          warningHtml = `
@@ -4305,11 +4318,9 @@ function checkDailySystemAutomations() {
 
     accounts.forEach(acc => {
         // We only care about active accounts or those needing termination
-        // Calculate where they should be paid up to
         const nextDueDate = new Date(acc.nextDue);
         
         // Check if the "Next Due" is actually in the past relative to today
-        // Meaning they haven't paid for the current active cycle
         const isOverdue = today > nextDueDate;
 
         if (isOverdue) {
@@ -4318,38 +4329,32 @@ function checkDailySystemAutomations() {
             if (currentDay >= 21 && currentDay <= 25) {
                 
                 // Check if we already applied penalty for this specific month
-                // We use a custom flag on the account object
                 if (acc.lastPenaltyMonth !== currentMonthStr) {
                     
-                    // 1. Auto Deduct Points (Reset to 0 as per "deduct to all")
-                    acc.points.advance = 0;
-                    acc.points.ontime = 0;
-                    acc.points.lost++; // Add to lost tally
-
-                    // 2. Auto Add 10% Penalty
+                    // 1. Auto Add 10% Penalty (Monetary)
                     const penaltyAmt = acc.plan.fee * 0.10;
                     
                     if (!acc.charges) acc.charges = [];
                     acc.charges.push({
                         date: today.toISOString().slice(0, 10),
-                        note: "Late Penalty (10%) - 21st-25th",
+                        note: "Late Penalty (10%)", // Note used by Step 1 to detect deduction
                         amount: penaltyAmt
                     });
 
-                    // Mark as penalized for this month so we don't do it every second
+                    // NOTE: We do NOT reset points to 0 here anymore. 
+                    // recomputePointsAndBalance() will detect the "Late Penalty" note
+                    // and deduct exactly 1 point based on priority.
+
+                    // Mark as penalized for this month
                     acc.lastPenaltyMonth = currentMonthStr; 
                     
-                    // Update Status text (Visual only, logic uses 'Active')
-                    // We don't change acc.status to 'Penalty' in DB, just visually in UI
-                    
                     dataChanged = true;
-                    pushNotification('warning', `Penalty Applied: 10% on ${acc.name} (Late 21st-25th)`, 'viewAccount', acc.accountNumber);
+                    pushNotification('warning', `Penalty Applied: 10% & -1 Point on ${acc.name}`, 'viewAccount', acc.accountNumber);
                 }
             }
 
             // --- RANGE: 26th to 30th (Termination/Freeze Phase) ---
             if (currentDay >= 26) {
-                
                 if (acc.status !== 'Terminated') {
                     // 1. Auto Terminate
                     acc.status = 'Terminated';
@@ -4361,8 +4366,6 @@ function checkDailySystemAutomations() {
                         note: "Reconnection Fee (Auto-Cutoff)",
                         amount: 150
                     });
-
-                    // 3. Logic to Freeze is handled by status = 'Terminated'
                     
                     dataChanged = true;
                     pushNotification('alert', `Account Terminated: ${acc.name} (Unpaid by 26th).`, 'viewAccount', acc.accountNumber);
@@ -4372,10 +4375,13 @@ function checkDailySystemAutomations() {
     });
 
     if (dataChanged) {
+        // Re-run calculations to apply the point deductions immediately
+        accounts.forEach(acc => recomputePointsAndBalance(acc));
         saveAccounts();
-        showToast('System Update: Penalties & Terminations processed.', 'warning');
+        showToast('System Update: Penalties & Point Deductions processed.', 'warning');
     }
 }
+
 
 function init(){
 checkDailySystemAutomations();
