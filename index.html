@@ -3318,26 +3318,22 @@ document.getElementById('btnTerminate').onclick = async ()=>{
   saveAccounts(); showToast('Account terminated.', 'error'); openAccount(activeAccountIndex); renderAccounts();
 };
 
-// --- STEP 1: UPDATED RECONNECTION LOGIC (30% OF PLAN) ---
 document.getElementById('btnReconnect').onclick = async () => {
   if(activeAccountIndex === null) return;
   
-  const acc = accounts[activeAccountIndex];
-  const planFee = acc.plan.fee;
-  // Calculate 30% Reconnection Fee
-  const reconFee = planFee * 0.30; 
-
   // 1. Confirm Reconnection
   const confirmReconnect = await customConfirm(
-      `Reconnect this account? Status will become ACTIVE.\n\nNote: A Reconnection Fee of 30% (₱${reconFee.toFixed(2)}) applies.`, 
-      "⚡ Reconnection Process"
+      "Reconnect this account? This will set status to ACTIVE.", 
+      "⚡ Reconnection"
   );
   
   if(!confirmReconnect) return;
 
-  // 2. Ask if we should charge the fee (Standard procedure is YES)
+  const acc = accounts[activeAccountIndex];
+
+  // 2. Ask if we should charge a fee
   const chargeFee = await customConfirm(
-      `Add the Reconnection Fee (₱${reconFee.toFixed(2)}) to the bill?`, 
+      "Do you want to add a standard Reconnection Fee (₱150)?", 
       "💰 Apply Charge?"
   );
 
@@ -3346,22 +3342,23 @@ document.getElementById('btnReconnect').onclick = async () => {
       if(!acc.charges) acc.charges = [];
       acc.charges.push({
           date: new Date().toISOString().slice(0,10),
-          note: "Reconnection Fee (30%)", 
-          amount: reconFee 
+          note: "Reconnection Fee", // description
+          amount: 150 // Amount
       });
-      showToast(`Reconnection Fee (₱${reconFee.toFixed(2)}) added.`, 'success');
+      showToast('Reconnection Fee (₱150) added.', 'success');
   }
 
   // 3. Update Status
   acc.status = 'Active';
   
   // 4. Save and Refresh
-  recomputePointsAndBalance(acc); 
+  recomputePointsAndBalance(acc); // Recalculate totals
   saveAccounts();
   renderAccounts();
-  openAccount(activeAccountIndex); 
+  openAccount(activeAccountIndex); // Refresh the view
   showToast('Account Reconnected Successfully!', 'success');
 };
+
 
 /* --- DELETE ACCOUNT FEATURE --- */
 document.getElementById('btnDeleteAccount').onclick = async () => {
@@ -4044,129 +4041,200 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
     return monthNames.join(", ");
 }
 
-
 /* =========================================
-   UPDATED INVOICE GENERATOR (SPECIFIC FLOW)
+   UPDATED INVOICE GENERATOR (UNIVERSAL FLOW)
    ========================================= */
-// --- STEP 3: UNIVERSAL INVOICE FLOW GENERATOR ---
 function generateInvoiceHtml(acc, isReminder = false) {
     const today = new Date();
+    // 1. Basic Variables
+    const planFee = acc.plan.fee;
+    const vatRate = invoiceSettings.vatRate || 0;
+    const permits = invoiceSettings.permits || [];
     
-    // --- 1. FINANCIAL CALCULATION ENGINE ---
-    
-    // A. Determine "Amount Paid" for this specific invoice
-    let amountPaid = 0;
-    let mainDate = today.toLocaleDateString();
+    // 2. Determine Context (Receipt vs Reminder)
     let mainRef = isReminder ? "BILLING" : "RECEIPT";
+    let mainDate = today.toLocaleDateString();
+    let amountPaid = 0;
     
+    // If it's a Receipt, get the very last payment made
     if (!isReminder && acc.payments.length > 0) {
         const lastPay = acc.payments[acc.payments.length - 1];
-        amountPaid = Number(lastPay.amount);
         mainDate = new Date(lastPay.date).toLocaleDateString();
-        mainRef = lastPay.referenceNumber || "CASH";
+        mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH-REF" : "CASH");
+        amountPaid = Number(lastPay.amount);
     }
 
-    // B. Determine "Current Bill" (Plan Fee)
-    const monthlyBill = acc.plan.fee;
-
-    // C. Calculate "Previous Balance" & "Adjustments"
-    // In this system, 'excessLackingBalance' is the NET result (Wallet).
-    // To show the breakdown, we need to reverse-engineer slightly or use the Net result.
-    // Logic: If Net Balance is negative, it's Total Due.
-    
-    // Let's iterate charges/discounts to categorize them
-    let penaltyTotal = 0;
-    let reconTotal = 0;
-    let otherCharges = 0;
+    // 3. SEPARATE CHARGES (Standard vs Penalties)
+    // We filter the account charges to separate Penalty/Recon from standard items
+    let totalCharges = 0;
     let totalDiscounts = 0;
-
-    // Filter Adjustments (Charges)
+    let penaltyRows = "";
+    let chargeRows = "";
+    
     if(acc.charges) {
         acc.charges.forEach(c => {
-            const n = c.note.toLowerCase();
-            if(n.includes('penalty') || n.includes('10%')) penaltyTotal += c.amount;
-            else if(n.includes('recon') || n.includes('30%')) reconTotal += c.amount;
-            else otherCharges += c.amount;
+            const desc = c.note.toLowerCase();
+            // Check for Keywords defined in Scenario D
+            if(desc.includes('penalty') || desc.includes('late')) {
+                penaltyRows += `<div class="therm-row" style="color:#d32f2f;"><span>Penalty (10%):</span><span>₱${c.amount.toFixed(2)}</span></div>`;
+            } else if (desc.includes('termination') || desc.includes('reconnection') || desc.includes('recon')) {
+                penaltyRows += `<div class="therm-row" style="color:#d32f2f;"><span>Reconnection (30%):</span><span>₱${c.amount.toFixed(2)}</span></div>`;
+            } else {
+                chargeRows += `<div class="therm-row"><span>${c.note}</span><span>₱${c.amount.toFixed(2)}</span></div>`;
+            }
+            totalCharges += c.amount;
         });
     }
 
-    // Filter Adjustments (Discounts)
     if(acc.discounts) {
-        acc.discounts.forEach(d => totalDiscounts += d.amount);
+        acc.discounts.forEach(d => {
+            totalDiscounts += d.amount;
+        });
     }
 
-    // D. Universal Flow Math
-    // We assume the 'excessLackingBalance' stored in the account is the FINAL wallet state.
-    // To show "Previous Balance", we look at the state before the *current* payment.
+    // 4. CALCULATE PREVIOUS BALANCE (The "Before" State)
+    // Current System Logic: excessLackingBalance > 0 is Money Client Has (Surplus). < 0 is Money Client Owes (Debt).
     
-    let currentWallet = acc.excessLackingBalance; 
-    let balanceBeforePayment = isReminder ? currentWallet : (currentWallet - amountPaid);
+    let currentSystemBalance = acc.excessLackingBalance; 
+    let balanceBeforeThisPayment = currentSystemBalance;
 
-    // If BalanceBeforePayment is Positive, they had Excess.
-    // If BalanceBeforePayment is Negative, they had Arrears/Lacking.
-    
-    // HOWEVER, the user wants the flow: MB + Charges - Discount + Previous.
-    // So 'Previous Balance' technically refers to the state *before* this month's bill was generated.
-    // For simplicity in this display logic, we will define:
-    // Subtotal (Total Due) = (MonthlyBill + Charges + Penalty + Recon) - Discounts - (Any Existing Excess) + (Any Existing Lacking)
-    
-    // Let's build the HTML Rows dynamically based on the flow requested.
-    let invoiceRows = "";
-    let runningTotal = 0;
-
-    // 1. Monthly Bill
-    invoiceRows += `<div class="therm-row"><span>Monthly Bill (${acc.plan.name})</span><span>₱${monthlyBill.toFixed(2)}</span></div>`;
-    runningTotal += monthlyBill;
-
-    // 2. Penalty (10%)
-    if (penaltyTotal > 0) {
-        invoiceRows += `<div class="therm-row" style="color:#d32f2f;"><span>Penalty (10%)</span><span>₱${penaltyTotal.toFixed(2)}</span></div>`;
-        runningTotal += penaltyTotal;
+    if (!isReminder) {
+        // If this is a receipt, we must reverse-engineer the state BEFORE the payment was applied
+        // Example: Current Balance is 200 (Surplus). I paid 700. 
+        // Before Payment = 200 - 700 = -500 (Debt).
+        balanceBeforeThisPayment = currentSystemBalance - amountPaid;
     }
 
-    // 3. Reconnection (30%)
-    if (reconTotal > 0) {
-        invoiceRows += `<div class="therm-row" style="color:#d32f2f;"><span>Reconnection Fee (30%)</span><span>₱${reconTotal.toFixed(2)}</span></div>`;
-        runningTotal += reconTotal;
+    // 5. CONVERT TO DISPLAY VARIABLES (User's Flow Logic)
+    // The user wants "Previous Balance" to show what was owed/excess specifically.
+    
+    let prevBalanceRow = "";
+    let subTotalDue = planFee + totalCharges - totalDiscounts; // Base Bill
+
+    // Analyze Previous Balance Context
+    if (balanceBeforeThisPayment < 0) {
+        // Negative means Debt/Lacking in system
+        const lacking = Math.abs(balanceBeforeThisPayment);
+        // Only show Previous Balance if it's NOT the current month's fee we are calculating
+        // (Simplified logic: If Balance Before is negative, they owed money previously)
+        // However, standard billing usually resets monthly. 
+        // Let's assume Previous Balance is the Lacking amount from history.
+        
+        // Note: Logic adjustment. We want "Previous Balance" to be separate from "Monthly Bill".
+        // In this snapshot, we treat 'balanceBeforeThisPayment' as the accumulated debt/credit excluding current plan fee?
+        // To keep it simple and accurate to the requested visual:
+        // We will treat "Previous Balance" as the debt carried over.
+        
+        // For visual simplicity in this specific flow:
+        // We will just add the values.
+        prevBalanceRow = `<div class="therm-row" style="color:red;"><span>Previous Balance:</span><span>₱${lacking.toFixed(2)}</span></div>`;
+        subTotalDue += lacking; 
+    } else if (balanceBeforeThisPayment > 0) {
+        // Positive means Excess
+        prevBalanceRow = `<div class="therm-row" style="color:green;"><span>Previous Excess:</span><span>- ₱${balanceBeforeThisPayment.toFixed(2)}</span></div>`;
+        subTotalDue -= balanceBeforeThisPayment;
     }
 
-    // 4. Other Charges
-    if (otherCharges > 0) {
-        invoiceRows += `<div class="therm-row" style="color:#d32f2f;"><span>Addtl. Charges</span><span>₱${otherCharges.toFixed(2)}</span></div>`;
-        runningTotal += otherCharges;
+    // 6. RENDER THE INVOICE ROWS (The Flow)
+    let flowHtml = "";
+
+    // A. Base Bill
+    flowHtml += `
+        <div class="therm-divider"></div>
+        <div style="font-weight:700; margin-bottom:5px;">INVOICE SUMMARY</div>
+        ${prevBalanceRow}
+        <div class="therm-row"><span>Monthly Bill (${acc.plan.name}):</span><span>₱${planFee.toFixed(2)}</span></div>
+        ${chargeRows}
+        ${penaltyRows}
+    `;
+
+    // B. Discounts
+    if(totalDiscounts > 0) {
+        flowHtml += `<div class="therm-row" style="color:green;"><span>Less Discount:</span><span>- ₱${totalDiscounts.toFixed(2)}</span></div>`;
     }
 
-    // 5. Discounts
-    if (totalDiscounts > 0) {
-        invoiceRows += `<div class="therm-row" style="color:green;"><span>Less: Discounts</span><span>- ₱${totalDiscounts.toFixed(2)}</span></div>`;
-        runningTotal -= totalDiscounts;
+    // C. Subtotal (Total Amount Due)
+    // Ensure Subtotal doesn't go below zero for display (unless it's a huge credit)
+    if(subTotalDue < 0) subTotalDue = 0; 
+    
+    flowHtml += `
+        <div class="therm-divider"></div>
+        <div class="therm-row" style="font-weight:bold; font-size:13px;">
+            <span>TOTAL DUE:</span>
+            <span>₱${subTotalDue.toFixed(2)}</span>
+        </div>
+    `;
+
+    // D. Payment & Result (Receipt Only)
+    let footerHtml = "";
+    let nextMonthPreview = "";
+
+    if(!isReminder) {
+        // Scenario A & B Logic
+        let balanceAfterPayment = subTotalDue - amountPaid;
+        let resultLabel = "REMAINING BALANCE";
+        let resultColor = "#000";
+        let resultValStr = "";
+
+        if(balanceAfterPayment < 0) {
+            // SCENARIO A: EXCESS (Negative result here means they paid MORE than Due)
+            const excessAmount = Math.abs(balanceAfterPayment);
+            resultLabel = "EXCESS / ADVANCE";
+            resultColor = "green";
+            resultValStr = `₱${excessAmount.toFixed(2)}`;
+            
+            // Preview Next Month Logic
+            const nextBillRemaining = planFee - excessAmount;
+            const nextBillDisplay = nextBillRemaining > 0 ? `₱${nextBillRemaining.toFixed(2)}` : "₱0.00 (Fully Covered)";
+            
+            nextMonthPreview = `
+            <div style="background:#f0f0f0; padding:5px; margin-top:5px; border-radius:4px;">
+                <div style="font-size:10px; font-weight:bold; text-align:center;">NEXT MONTH PREVIEW</div>
+                <div class="therm-row" style="font-size:10px;"><span>Next Bill:</span><span>₱${planFee.toFixed(2)}</span></div>
+                <div class="therm-row" style="font-size:10px;"><span>Less Excess:</span><span>- ₱${excessAmount.toFixed(2)}</span></div>
+                <div class="therm-divider" style="margin:2px 0;"></div>
+                <div class="therm-row" style="font-weight:bold; font-size:11px;"><span>Next Balance Due:</span><span>${nextBillDisplay}</span></div>
+            </div>
+            `;
+
+        } else if (balanceAfterPayment > 0) {
+            // SCENARIO B: LACKING (Positive result means they still owe money)
+            resultLabel = "INSUFFICIENT / LACKING";
+            resultColor = "red";
+            resultValStr = `₱${balanceAfterPayment.toFixed(2)}`;
+            
+            // Preview Next Month Logic
+            const nextTotal = planFee + balanceAfterPayment;
+            nextMonthPreview = `
+            <div style="background:#fff0f0; padding:5px; margin-top:5px; border-radius:4px; border:1px solid #ffcccc;">
+                <div style="font-size:10px; font-weight:bold; text-align:center; color:red;">NEXT MONTH ADJUSTMENT</div>
+                <div class="therm-row" style="font-size:10px;"><span>Next Bill:</span><span>₱${planFee.toFixed(2)}</span></div>
+                <div class="therm-row" style="font-size:10px; color:red;"><span>Add Insufficient:</span><span>+ ₱${balanceAfterPayment.toFixed(2)}</span></div>
+                <div class="therm-divider" style="margin:2px 0;"></div>
+                <div class="therm-row" style="font-weight:bold; font-size:11px;"><span>Total Next Balance:</span><span>₱${nextTotal.toFixed(2)}</span></div>
+            </div>
+            `;
+        } else {
+            // EXACT PAYMENT
+            resultLabel = "BALANCE CLEARED";
+            resultValStr = "₱0.00";
+        }
+
+        flowHtml += `
+            <div class="therm-row" style="margin-top:5px;">
+                <span>Amount Paid:</span>
+                <span>₱${amountPaid.toFixed(2)}</span>
+            </div>
+            <div class="therm-divider"></div>
+            <div class="therm-row" style="font-weight:800; font-size:14px; color:${resultColor};">
+                <span>${resultLabel}:</span>
+                <span>${resultValStr}</span>
+            </div>
+            ${nextMonthPreview}
+        `;
     }
 
-    // 6. Previous Balance Handling (The "Lacking" or "Excess" from previous history)
-    // We calculate this by taking the Final Wallet and subtracting the current transaction impact.
-    // Net Result = Wallet.
-    // Mathematical Trick: PreviousBalance = Wallet - (MonthlyBill + Charges - Discounts) + AmountPaid
-    // Note: This approximates the 'Previous Balance' relative to this specific invoice generation.
-    
-    // Actually, simpler logic:
-    // If the account has Lacking Balance (Negative Wallet), that is the "Previous Balance".
-    // Since recomputePointsAndBalance runs globally, let's use a simpler visual approach.
-    
-    // VISUAL ONLY CALCULATION:
-    // We display the components, and the "Total Amount Due" is the summation.
-    
-    // Let's assume Previous Balance is 0 for the base calculation, 
-    // unless we detect a major discrepancy in the wallet.
-    // (In a real DB, we would store snapshots. Here we estimate).
-    
-    // We will handle the "Insufficient" / "Excess" logic at the footer.
-    
-    let subTotal = runningTotal;
-
-    // --- HTML CONSTRUCTION ---
-
-    // Generate Permit HTML
-    const permits = invoiceSettings.permits || [];
+    // 7. Permit HTML Generation
     let permitHtml = "";
     if (permits.length > 0) {
         permitHtml = `<div class="inv-permits">`;
@@ -4174,46 +4242,10 @@ function generateInvoiceHtml(acc, isReminder = false) {
         permitHtml += `</div>`;
     }
 
-    // Determine Final Display Labels based on the Flow Scenarios
-    let resultLabel = "REMAINING BALANCE";
-    let resultAmount = 0;
-    
-    // SCENARIO A: Excess Flow
-    // If Paid > Subtotal -> Excess
-    // SCENARIO B: Lacking Flow
-    // If Paid < Subtotal -> Insufficient
+    // 8. Return the Final HTML Structure
+    const nextDueObj = new Date(acc.nextDue);
+    const nextBillString = nextDueObj.toLocaleString('default', { month: 'long', day: 'numeric', year: 'numeric' });
 
-    // For the Visual Invoice, we use the visual Subtotal vs Paid.
-    // But we must respect the Real System Balance (acc.excessLackingBalance).
-    
-    // If it's a REMINDER, Paid is 0.
-    if(isReminder) amountPaid = 0;
-
-    let finalDiff = 0;
-    if(isReminder) {
-        // If reminder, Total Due is simply the negative wallet amount (Lacking).
-        // If wallet is positive, Total Due is 0.
-        subTotal = acc.excessLackingBalance < 0 ? Math.abs(acc.excessLackingBalance) : 0;
-        finalDiff = subTotal; 
-    } else {
-        // If Receipt, we calculate mathematically:
-        // Due: 500, Paid: 700 => Excess 200.
-        // Due: 500, Paid: 400 => Lacking 100.
-        
-        // We use the System Balance to tell the truth.
-        // If System Balance is Positive => Excess.
-        // If System Balance is Negative => Lacking.
-        
-        if (acc.excessLackingBalance >= 0) {
-            resultLabel = "EXCESS (To Next Bill)";
-            resultAmount = acc.excessLackingBalance;
-        } else {
-            resultLabel = "TOTAL NEXT BALANCE"; // Lacking + Next Bill logic implied
-            resultAmount = Math.abs(acc.excessLackingBalance);
-        }
-    }
-
-    // --- RENDER ---
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -4232,45 +4264,22 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
         </div>
 
-        <div class="therm-divider"></div>
-        <div style="font-weight:bold; text-align:center; margin: 5px 0;">
-            ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
-        </div>
-
-        ${invoiceRows}
+        ${flowHtml}
         
-        <div class="therm-divider"></div>
-
-        <div class="therm-row" style="font-weight:700; font-size:14px;">
-            <span>TOTAL AMOUNT DUE:</span>
-            <span>₱${subTotal.toFixed(2)}</span>
-        </div>
-
-        ${!isReminder ? `
-        <div class="therm-row" style="font-weight:700; font-size:14px;">
-            <span>AMOUNT PAID:</span>
-            <span>₱${amountPaid.toFixed(2)}</span>
-        </div>
-        ` : ''}
-
-        <div class="therm-divider"></div>
-        
-        <div style="background: #f0f0f0; padding: 5px; text-align:center;">
-             <div style="font-size:11px; font-weight:bold; color: #555;">${resultLabel}</div>
-             <div style="font-size:18px; font-weight:800; color:var(--accent-2);">₱${resultAmount.toFixed(2)}</div>
-        </div>
-        
-        <div style="margin-top:10px; font-size:12px; text-align:center; padding:5px; border:1px solid #000;">
+        <div style="margin-top:15px; font-size:12px; text-align:center; padding:5px; border:1px solid #000;">
             <strong>NEXT BILLING DATE:</strong><br>
-            <span style="font-size:14px; font-weight:bold;">${new Date(acc.nextDue).toLocaleString('default', { month: 'long', year: 'numeric' })} 20</span>
+            <span style="font-size:14px; font-weight:bold;">${nextBillString}</span>
         </div>
 
         <div class="therm-footer">
-            <i>${isReminder ? 'Please pay before disconnection.' : 'Thank you for your business!'}</i>
+            <i>${isReminder ? 'Please pay before disconnection.' : 'Thank you for your payment!'}</i>
         </div>
     </div>
     `;
 }
+
+
+
 
 
 
@@ -4350,7 +4359,6 @@ setInterval(updateClock, 1000); updateClock();
 /* =========================================
    AUTOMATION: PENALTIES & TERMINATION (21st-30th)
    ========================================= */
-// --- STEP 2: UPDATED AUTOMATION (10% PENALTY) ---
 function checkDailySystemAutomations() {
     const today = new Date();
     const currentDay = today.getDate();
@@ -4361,14 +4369,14 @@ function checkDailySystemAutomations() {
     accounts.forEach(acc => {
         const nextDueDate = new Date(acc.nextDue);
         
-        // Only run logic if account is strictly overdue
+        // Only run logic if account is strictly overdue (Today > Due Date)
         if (today > nextDueDate) {
             
             // --- LATE PAYER (21st - 25th) ---
             if (currentDay >= 21 && currentDay <= 25) {
                 if (acc.lastPenaltyMonth !== currentMonthStr) {
                     
-                    // 1. Point Deduction
+                    // 1. Lost Point Logic (Deduct 1)
                     if (acc.points.ontime > 0) acc.points.ontime--;
                     else if (acc.points.advance > 0) acc.points.advance--;
                     else acc.points.lost++; 
@@ -4379,7 +4387,7 @@ function checkDailySystemAutomations() {
                     if (!acc.charges) acc.charges = [];
                     acc.charges.push({
                         date: today.toISOString().slice(0, 10),
-                        note: "Late Penalty (10%)", // Specific note for the Invoice to read
+                        note: "Late Fee (10%) + Point Deduction",
                         amount: penaltyAmt
                     });
 
@@ -4389,14 +4397,26 @@ function checkDailySystemAutomations() {
                 }
             }
 
-            // --- TERMINATION (26th+) ---
+            // --- TERMINATED (26th+) ---
             if (currentDay >= 26) {
                 if (acc.status !== 'Terminated') {
                     acc.status = 'Terminated';
-                    // Note: We don't auto-add Reconnection fee here. 
-                    // That is added when the button is clicked in Step 1.
+                    
+                    // 3. Termination Penalty: 30% of Plan (As requested)
+                    const termPenalty = acc.plan.fee * 0.30;
+
+                    if (!acc.charges) acc.charges = [];
+                    acc.charges.push({
+                        date: today.toISOString().slice(0, 10),
+                        note: "Termination Penalty (30%)",
+                        amount: termPenalty
+                    });
+                    
+                    // Optional: Add Reconnection fee separate or included? 
+                    // Leaving only the 30% per request, but you can add Reconnection fee here too.
+
                     dataChanged = true;
-                    pushNotification('alert', `Account Terminated: ${acc.name}.`, 'viewAccount', acc.accountNumber);
+                    pushNotification('alert', `Account Terminated: ${acc.name}. 30% Penalty Added.`, 'viewAccount', acc.accountNumber);
                 }
             }
         }
@@ -4407,7 +4427,6 @@ function checkDailySystemAutomations() {
         renderAccounts(); 
     }
 }
-
 
 
 
@@ -5494,3 +5513,5 @@ function applySpecificPointDeduction(acc) {
 </script>
 </body>
 </html>
+
+   
