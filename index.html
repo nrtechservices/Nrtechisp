@@ -993,6 +993,115 @@
     .invoice-clean { display: none; } 
 }
 
+/* --- NEW STYLES FOR STEP 1 --- */
+
+/* Frozen Account Effect (Termination) */
+.account-box-row.status-frozen {
+    background: linear-gradient(135deg, #f0f8ff 0%, #e6f7ff 100%); /* Icy Blue */
+    border: 2px solid #00aaff;
+    opacity: 0.8;
+    position: relative;
+    overflow: hidden;
+}
+
+/* Snowflake overlay for Frozen accounts */
+.account-box-row.status-frozen::after {
+    content: "❄️ FROZEN / TERMINATED";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%) rotate(-10deg);
+    font-size: 24px;
+    font-weight: 900;
+    color: rgba(0, 170, 255, 0.2);
+    pointer-events: none;
+    white-space: nowrap;
+    z-index: 0;
+}
+
+/* Invoice Warning Box Styles */
+.inv-warning-box {
+    border: 2px solid #d32f2f;
+    background-color: #ffebee;
+    color: #d32f2f;
+    padding: 10px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 12px;
+    margin: 10px 0;
+    border-radius: 4px;
+}
+
+.inv-freeze-warning {
+    border: 2px solid #00aaff;
+    background-color: #e1f5fe;
+    color: #01579b;
+    padding: 10px;
+    text-align: center;
+    font-weight: bold;
+    font-size: 12px;
+    margin: 10px 0;
+    border-radius: 4px;
+}
+
+/* --- SESSION TIMEOUT WARNING STYLES --- */
+#sessionWarningBackdrop {
+    position: fixed;
+    inset: 0;
+    display: none; /* Hidden by default */
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    z-index: 2000; /* Highest priority */
+    animation: fadeIn 0.3s ease-out;
+}
+
+.session-card {
+    background: var(--card);
+    width: min(90%, 380px);
+    padding: 25px;
+    border-radius: 16px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    border: 2px solid var(--toast-warning); /* Orange/Gold border */
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    animation: slideUp 0.3s ease-out;
+}
+
+.session-icon {
+    font-size: 40px;
+    margin-bottom: 10px;
+    animation: pulse 1.5s infinite;
+}
+
+.session-timer {
+    font-size: 32px;
+    font-weight: 800;
+    color: var(--accent-2);
+    margin: 15px 0;
+    font-family: monospace;
+}
+
+.session-p {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+@keyframes pulse {
+    0% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.1); opacity: 0.8; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes slideUp {
+    from { transform: translateY(20px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+}
+
+
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -1826,6 +1935,23 @@
   </div>
 </div>
 
+<div id="sessionWarningBackdrop">
+  <div class="session-card">
+    <div class="session-icon">⏳</div>
+    <h3 style="margin:0; color: var(--text);">Session Expiring</h3>
+    <div class="session-timer" id="sessionCountdown">60</div>
+    <p class="session-p">For security, you will be automatically logged out due to inactivity.</p>
+    
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+        <button id="btnSessionLogout" class="ghost" style="border-color: var(--muted); color: var(--muted);">
+            Log Out Now
+        </button>
+        <button id="btnSessionStay" style="background: var(--accent); color: white;">
+            Stay Logged In
+        </button>
+    </div>
+  </div>
+</div>
 
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -2046,28 +2172,102 @@ document.getElementById('btnLogout').onclick = async () => {
     }
 };
 
-// REPLACE THE OLD resetAutoLogoutTimer FUNCTION WITH THIS ONE:
+/* =========================
+   ENHANCED AUTO LOGOUT SYSTEM
+   ========================= */
+const TIMEOUT_DURATION = 120000; // 2 Minutes Total
+const WARNING_DURATION = 60000;  // Show warning at 1 Minutes (60s left)
 
+let sessionTimeout;
+let warningTimeout;
+let countdownInterval;
+
+// 1. Function to start the timers
 function resetAutoLogoutTimer() {
-    clearTimeout(autoLogoutTimer);
-    if (isLoggedIn()) {
-        autoLogoutTimer = setTimeout(() => {
-            // 1. Set state to logged out
-            setLoginState(false);
-            
-            // 2. Clear any active account selections
-            activeAccountIndex = null;
-            activeClientAccount = null;
+    // Clear existing timers
+    clearTimeout(sessionTimeout);
+    clearTimeout(warningTimeout);
+    clearInterval(countdownInterval);
 
-            // 3. Force a browser reload to "Redirect" purely to the login screen
-            // This ensures no data is left lingering on the screen
-            alert("Session Expired: You have been automatically logged out due to inactivity.");
-            window.location.reload(); 
-            
-        }, AUTO_LOGOUT_DURATION); // 2 minutes
+    // Hide the warning modal if it's open (because user moved mouse)
+    const warningModal = document.getElementById('sessionWarningBackdrop');
+    if (warningModal && warningModal.style.display === 'flex') {
+        warningModal.style.display = 'none';
+    }
+
+    if (isLoggedIn()) {
+        // Set Timer for the Warning Modal (Total Time - Warning Time)
+        warningTimeout = setTimeout(() => {
+            showSessionWarning();
+        }, TIMEOUT_DURATION - WARNING_DURATION);
+
+        // Set Timer for the Actual Logout
+        sessionTimeout = setTimeout(() => {
+            performAutoLogout();
+        }, TIMEOUT_DURATION);
     }
 }
 
+// 2. Show the "Are you still there?" Modal
+function showSessionWarning() {
+    const modal = document.getElementById('sessionWarningBackdrop');
+    const timerEl = document.getElementById('sessionCountdown');
+    let secondsLeft = WARNING_DURATION / 1000;
+
+    modal.style.display = 'flex';
+    timerEl.textContent = secondsLeft;
+
+    // Start visual countdown
+    countdownInterval = setInterval(() => {
+        secondsLeft--;
+        timerEl.textContent = secondsLeft;
+        if (secondsLeft <= 0) {
+            clearInterval(countdownInterval);
+        }
+    }, 1000);
+}
+
+// 3. Perform the Logout
+function performAutoLogout() {
+    setLoginState(false);
+    activeAccountIndex = null;
+    activeClientAccount = null;
+    
+    // Hide warning modal
+    document.getElementById('sessionWarningBackdrop').style.display = 'none';
+    clearInterval(countdownInterval);
+
+    // Show Login Modal
+    document.getElementById('loginModalBackdrop').style.display = 'flex';
+    
+    // Show a nice Toast instead of ugly alert
+    showToast("⚠️ Session Expired due to inactivity.", "error");
+}
+
+// 4. Attach Event Listeners for User Activity
+const events = ['mousemove', 'keypress', 'click', 'scroll', 'touchstart'];
+events.forEach(eventType => {
+    window.addEventListener(eventType, () => {
+        // Only reset if the warning modal is NOT visible
+        // If warning is visible, user must click the button to reset
+        const warningModal = document.getElementById('sessionWarningBackdrop');
+        if (!warningModal || warningModal.style.display !== 'flex') {
+            resetAutoLogoutTimer();
+        }
+    }, true);
+});
+
+// 5. Button Logic for the Modal
+document.getElementById('btnSessionStay').onclick = () => {
+    // User clicked "Stay Logged In"
+    document.getElementById('sessionWarningBackdrop').style.display = 'none';
+    resetAutoLogoutTimer();
+    showToast("Session extended.", "success");
+};
+
+document.getElementById('btnSessionLogout').onclick = () => {
+    performAutoLogout();
+};
 
 // Attach event listeners for user activity
 ['mousemove', 'keypress', 'click', 'scroll', 'touchstart'].forEach(eventType => {
@@ -2500,7 +2700,16 @@ function renderAccounts(){
     });
 
     const accountRow = document.createElement('tr');
-    accountRow.className = 'account-box-row';
+    
+    // Base class
+    let rowClasses = 'account-box-row';
+    
+    // Check for Freeze Condition (Terminated)
+    if (a.status === 'Terminated') {
+        rowClasses += ' status-frozen';
+    }
+    
+    accountRow.className = rowClasses;
     accountRow.setAttribute('onclick', `openAccount(${idx})`);
     accountRow.innerHTML = `
         <td colspan="6" style="padding: 0; border: none;">
@@ -2539,132 +2748,101 @@ function renderClientTally(clientTally) {
 }
 
 /* =========================================
-   CORE LOGIC: RECOMPUTE POINTS & BALANCE (TIMELINE METHOD)
+   UPDATED CORE LOGIC: POINTS & REWARDS
    ========================================= */
 function recomputePointsAndBalance(acc) {
-    // Reset Counters
+    // 1. Reset Counters
     acc.points = { advance: 0, ontime: 0, lost: 0 };
     
-    // 1. Determine "Start of Service"
-    // We assume the account started 1 month before the first payment, 
-    // or defaults to a specific date if you have a createdAt field. 
-    // For this logic, we align to the nearest previous 20th.
-    
-    // Sort payments by date to ensure timeline accuracy
+    // Sort payments
     const sortedPayments = [...acc.payments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Handle Charges & Discounts first (Simplified: Net Adjustment)
+    // Calculate Net Adjustments (Charges/Discounts)
     let netAdjustments = 0;
     if(acc.charges) acc.charges.forEach(c => netAdjustments -= Number(c.amount));
     if(acc.discounts) acc.discounts.forEach(d => netAdjustments += Number(d.amount));
 
-    // Initialize the "Wallet" (Balance)
-    // Start with adjustments (usually negative if they have installation fees etc)
+    // Initialize Wallet
     let wallet = netAdjustments; 
-    
-    // "Paid Through" Date tracker. 
-    // This tracks the last month fully covered by payments.
-    // If no payments, it starts "Now" minus 1 month (effectively due now).
-    // For calculation safety, let's look at the first payment date.
-    let firstPayDate = sortedPayments.length > 0 ? new Date(sortedPayments[0].date) : new Date();
-    
-    // Align Start Date to the 20th of the month of the first payment
-    // If first payment is before the 20th, it pays for *that* month. 
-    // If after 20th, it usually pays for next. 
-    // To simplify: We start tracking from the Month of the first transaction.
-    let coverageCursor = new Date(firstPayDate.getFullYear(), firstPayDate.getMonth(), 20);
+    let coverageCursor = sortedPayments.length > 0 ? new Date(sortedPayments[0].date) : new Date();
+    // Align cursor to the 20th of the starting month
+    coverageCursor = new Date(coverageCursor.getFullYear(), coverageCursor.getMonth(), 20);
 
-    // If the first payment was effectively for the *previous* month (caught up late), move cursor back.
-    // But per your requirement: "It depend on the allocate month". 
-    // We will use a standard ledger: Wallet vs Bill Queue.
-
-    // Let's iterate payments to build the wallet and pay off months sequentially
     sortedPayments.forEach(p => {
         const payAmt = Number(p.amount);
-        const payDate = new Date(p.date + 'T00:00:00'); // Normalize
-        const payDay = payDate.getDate();
+        const payDate = new Date(p.date);
+        const payDay = payDate.getDate(); // 1 to 31
 
-        // 1. Add money to wallet
         wallet += payAmt;
-        
-        // 2. Pay off months as long as we have enough money in wallet
-        // Requirement: "1500 paid... 500 plan... 3 months covered... 1 ontime, 2 advance"
-        
-        // We track which months were covered BY THIS SPECIFIC PAYMENT for the invoice
         p.coveredMonths = []; 
 
-        while (wallet >= acc.plan.fee) {
-            // We can pay for the month at 'coverageCursor'
-            const billingMonthName = getMonthName(coverageCursor);
-            p.coveredMonths.push(billingMonthName);
+        // PAY OFF MONTHS
+        while (wallet >= getEffectiveMonthlyFee(acc)) {
+            const currentPlanFee = getEffectiveMonthlyFee(acc); // Handle 50% off or Free logic
+            
+            // Check for Point Rewards Trigger (Before deducting)
+            let rewardApplied = false;
 
-            // --- POINT LOGIC ---
-            // Compare Payment Date vs Coverage Cursor (The Due Date of the bill being paid)
-            
-            // Check diff in months roughly
-            // If PayDate is in Nov, and CoverageCursor is Nov 20 -> Current
-            // If PayDate is in Nov, and CoverageCursor is Dec 20 -> Advance
-            
-            const isSameMonth = payDate.getFullYear() === coverageCursor.getFullYear() && 
-                                payDate.getMonth() === coverageCursor.getMonth();
-            
-            const isBeforeMonth = payDate < new Date(coverageCursor.getFullYear(), coverageCursor.getMonth(), 1);
-
-            if (isSameMonth) {
-                // Paying for current month
-                if (payDay === 20) {
-                    acc.points.ontime++;
-                } else if (payDay < 20) {
-                    acc.points.advance++; // Early in the same month
-                } else {
-                    // Late in same month (21st+)
-                    // No positive points. Maybe penalty logic here if needed.
-                }
-            } else if (isBeforeMonth) {
-                // Paying for a future month (Advance)
-                acc.points.advance++;
-            } else {
-                // Paying for a past month (Late)
-                acc.points.lost++;
+            // RULE: 12 Advance Points = Free Month
+            if (acc.points.advance >= 12) {
+                wallet -= 0; // Free month (0 cost)
+                acc.points.advance = 0; // Auto return to 0
+                p.note = (p.note || "") + " [REWARD: Free Month Applied]";
+                rewardApplied = true;
+            }
+            // RULE: 12 Ontime Points = 50% Off
+            else if (acc.points.ontime >= 12) {
+                wallet -= (acc.plan.fee * 0.5); // 50% Off
+                acc.points.ontime = 0; // Auto return to 0
+                p.note = (p.note || "") + " [REWARD: 50% Off Applied]";
+                rewardApplied = true;
+            } 
+            else {
+                // Normal Payment
+                wallet -= acc.plan.fee;
             }
 
-            // Deduct Fee and Move Cursor to next month
-            wallet -= acc.plan.fee;
+            p.coveredMonths.push(getMonthName(coverageCursor));
+
+            // --- POINTING SYSTEM LOGIC ---
+            // Only apply points if this payment covered a specific month's bill
+            if (!rewardApplied) {
+                // Determine if payment is for current, future, or past
+                const isSameMonth = payDate.getFullYear() === coverageCursor.getFullYear() && 
+                                    payDate.getMonth() === coverageCursor.getMonth();
+                const isBeforeMonth = payDate < new Date(coverageCursor.getFullYear(), coverageCursor.getMonth(), 1);
+
+                if (isSameMonth || isBeforeMonth) {
+                    // 1st to 19th -> Advance
+                    if (payDay >= 1 && payDay <= 19) {
+                        acc.points.advance++;
+                    } 
+                    // 20th Only -> Ontime
+                    else if (payDay === 20) {
+                        acc.points.ontime++;
+                    }
+                    // 21st+ -> No points (Penalty logic is handled in Automation function)
+                } else {
+                    // Late payment for past month
+                    acc.points.lost++; 
+                }
+            }
+
+            // Move to next month
             coverageCursor = addMonths(coverageCursor, 1);
         }
-        
-        // Store snapshot for history
         p.balanceAfter = wallet; 
     });
 
-    // Final Balance State
-    acc.excessLackingBalance = wallet; // If positive (Excess), if negative (Lacking logic handles naturally here?)
-    
-    // NOTE: In this logic, 'wallet' is the Excess.
-    // If the user has NOT paid enough for the *current* real-time month, we need to calculate Lacking.
-    
-    // Determine Actual Due Date relative to Real Time
-    const today = new Date();
-    // If coverageCursor is in the past (e.g., Oct 20), and today is Dec 8, they owe Oct and Nov.
-    
+    acc.excessLackingBalance = wallet; 
     acc.nextDue = coverageCursor.toISOString().slice(0, 10);
     
-    // Status Logic based on how far behind the cursor is
-    if (coverageCursor > today) {
-        acc.status = 'Active';
-    } else {
-        // If cursor is past, they owe money.
-        // Calculate total debt?
-        // Actually, the `wallet` variable holds the remainder.
-        // If wallet < planFee, it's "Lacking" for the *next* bill.
-        
-        // Auto-terminate logic (26th check)
-        if (today.getDate() >= 26 && today > coverageCursor) {
-            acc.status = 'Terminated';
-        } else if (today > coverageCursor) {
-            // Overdue
-        }
-    }
+    // Status visual update is handled in renderAccounts using CSS
+}
+
+// Helper to get fee (can be expanded)
+function getEffectiveMonthlyFee(acc) {
+    return acc.plan.fee; 
 }
 
 
@@ -3898,6 +4076,41 @@ function generateInvoiceHtml(acc, isReminder = false) {
              mainAmount = 0; 
         }
     }
+        // ... inside generateInvoiceHtml ...
+
+    // STATUS CHECKS FOR INVOICE
+    const day = today.getDate();
+
+    // 1. TERMINATED / FROZEN WARNING
+    if (acc.status === 'Terminated') {
+        warningHtml = `
+            <div class="inv-freeze-warning">
+                ❄️ ACCOUNT FROZEN ❄️<br>
+                Service has been cut off (26th+).<br>
+                PAY: Bal + Penalty + Reconnection (₱150) to Reactivate.
+            </div>`;
+    } 
+    // 2. PENALTY WARNING (21st - 25th)
+    else if (day >= 21 && day <= 25 && acc.excessLackingBalance < acc.plan.fee) {
+        warningHtml = `
+            <div class="inv-warning-box">
+                ⚠ LATE PAYMENT WARNING ⚠<br>
+                Date is 21st-25th.<br>
+                Points deducted & 10% Penalty added.<br>
+                Pay before 26th to avoid Termination!
+            </div>`;
+    }
+    // 3. REMINDER (Before 20th)
+    else if (isReminder) {
+         warningHtml = `
+            <div style="text-align:center; font-size:11px; margin:10px 0; color:#555;">
+                <strong>Rewards Info:</strong><br>
+                Pay 1st-19th: Advance Point<br>
+                Pay 20th: Ontime Point<br>
+                <i>12 Points = Free Month or 50% Off!</i>
+            </div>`;
+    }
+
 
     // 2. EXTRA ITEMS (Charges/Discounts) WITH DATES (REQ #1)
     // We check if the item is in the same month as the invoice to keep it relevant
@@ -4080,7 +4293,92 @@ function updateClock(){
 }
 setInterval(updateClock, 1000); updateClock();
 
+/* =========================================
+   AUTOMATION: PENALTIES & TERMINATION (21st-30th)
+   ========================================= */
+function checkDailySystemAutomations() {
+    const today = new Date();
+    const currentDay = today.getDate();
+    const currentMonthStr = today.toISOString().slice(0, 7); // "2023-12"
+
+    let dataChanged = false;
+
+    accounts.forEach(acc => {
+        // We only care about active accounts or those needing termination
+        // Calculate where they should be paid up to
+        const nextDueDate = new Date(acc.nextDue);
+        
+        // Check if the "Next Due" is actually in the past relative to today
+        // Meaning they haven't paid for the current active cycle
+        const isOverdue = today > nextDueDate;
+
+        if (isOverdue) {
+            
+            // --- RANGE: 21st to 25th (Penalty Phase) ---
+            if (currentDay >= 21 && currentDay <= 25) {
+                
+                // Check if we already applied penalty for this specific month
+                // We use a custom flag on the account object
+                if (acc.lastPenaltyMonth !== currentMonthStr) {
+                    
+                    // 1. Auto Deduct Points (Reset to 0 as per "deduct to all")
+                    acc.points.advance = 0;
+                    acc.points.ontime = 0;
+                    acc.points.lost++; // Add to lost tally
+
+                    // 2. Auto Add 10% Penalty
+                    const penaltyAmt = acc.plan.fee * 0.10;
+                    
+                    if (!acc.charges) acc.charges = [];
+                    acc.charges.push({
+                        date: today.toISOString().slice(0, 10),
+                        note: "Late Penalty (10%) - 21st-25th",
+                        amount: penaltyAmt
+                    });
+
+                    // Mark as penalized for this month so we don't do it every second
+                    acc.lastPenaltyMonth = currentMonthStr; 
+                    
+                    // Update Status text (Visual only, logic uses 'Active')
+                    // We don't change acc.status to 'Penalty' in DB, just visually in UI
+                    
+                    dataChanged = true;
+                    pushNotification('warning', `Penalty Applied: 10% on ${acc.name} (Late 21st-25th)`, 'viewAccount', acc.accountNumber);
+                }
+            }
+
+            // --- RANGE: 26th to 30th (Termination/Freeze Phase) ---
+            if (currentDay >= 26) {
+                
+                if (acc.status !== 'Terminated') {
+                    // 1. Auto Terminate
+                    acc.status = 'Terminated';
+                    
+                    // 2. Add Reconnection Fee (150)
+                    if (!acc.charges) acc.charges = [];
+                    acc.charges.push({
+                        date: today.toISOString().slice(0, 10),
+                        note: "Reconnection Fee (Auto-Cutoff)",
+                        amount: 150
+                    });
+
+                    // 3. Logic to Freeze is handled by status = 'Terminated'
+                    
+                    dataChanged = true;
+                    pushNotification('alert', `Account Terminated: ${acc.name} (Unpaid by 26th).`, 'viewAccount', acc.accountNumber);
+                }
+            }
+        }
+    });
+
+    if (dataChanged) {
+        saveAccounts();
+        showToast('System Update: Penalties & Terminations processed.', 'warning');
+    }
+}
+
 function init(){
+checkDailySystemAutomations();
   accounts.forEach(a => {
       a.billingDay = FIXED_BILLING_DAY;
       const lastPayDate = a.payments.length>0 ? a.payments[a.payments.length-1].date : null;
