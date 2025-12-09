@@ -2801,8 +2801,7 @@ function getEffectiveMonthlyFee(acc) {
     return Number(acc.plan.fee) || 0;
 }
 
-// FIND THE FUNCTION "recomputePointsAndBalance" AND REPLACE IT WITH THIS:
-
+// 2. Main Logic
 function recomputePointsAndBalance(acc) {
     // 1. Reset Counters
     acc.points = { advance: 0, ontime: 0, lost: 0 };
@@ -2810,24 +2809,14 @@ function recomputePointsAndBalance(acc) {
     // 2. Sort payments by date
     const sortedPayments = [...acc.payments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // 3. Initialize Wallet 
-    // Wallet represents money the client HAS.
-    // Payments ADD to wallet. Discounts ADD to wallet (Credit). Charges SUBTRACT from wallet (Debit).
+    // 3. Initialize Wallet with Adjustments
     let wallet = 0; 
+    let netAdjustments = 0;
     
-    // --- FIX 1: Charges subtract from wallet (Increase Debt) ---
-    if(acc.charges) {
-        acc.charges.forEach(c => {
-            wallet -= Math.abs(Number(c.amount)); // Force positive number then subtract
-        });
-    }
-
-    // --- FIX 2: Discounts add to wallet (Reduce Debt/Free Money) ---
-    if(acc.discounts) {
-        acc.discounts.forEach(d => {
-            wallet += Math.abs(Number(d.amount)); // Force positive number then add
-        });
-    }
+    if(acc.charges) acc.charges.forEach(c => netAdjustments -= Number(c.amount));
+    if(acc.discounts) acc.discounts.forEach(d => netAdjustments += Number(d.amount));
+    
+    wallet += netAdjustments;
 
     // 4. Set Coverage Cursor
     let coverageCursor;
@@ -2849,6 +2838,7 @@ function recomputePointsAndBalance(acc) {
         wallet += payAmt;
         p.coveredMonths = [];
 
+        // --- FIXED LOOP LOGIC ---
         const fee = getEffectiveMonthlyFee(acc);
 
         // Safety break for 0 fee plans
@@ -4052,12 +4042,13 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 }
 
 
-// FIND THE FUNCTION "generateInvoiceHtml" AND REPLACE IT WITH THIS:
-
+/* =========================================
+   UPDATED INVOICE GENERATOR (FIXED CALCULATIONS)
+   - Logic: Plan + Charges - Discounts = Subtotal
+   - Logic: Subtotal +/- Prev Balance = Grand Total
+   ========================================= */
 function generateInvoiceHtml(acc, isReminder = false) {
     const today = new Date();
-    const planFee = acc.plan.fee;
-    
     // 1. Get Settings
     const vatRate = invoiceSettings.vatRate || 0; 
     const permits = invoiceSettings.permits || [];
@@ -4066,150 +4057,123 @@ function generateInvoiceHtml(acc, isReminder = false) {
     let mainRef = isReminder ? "BILLING" : "RECEIPT";
     let mainDate = today.toLocaleDateString();
     
+    // Determine the "Billing Month" filter (YYYY-MM) to show relevant charges/discounts
+    // If it's a reminder, use current month. If receipt for past payment, ideally matches payment date, 
+    // but for simplicity, we use the current billing cycle month.
+    let filterMonth = new Date().toISOString().slice(0, 7); 
+
     const nextDueObj = new Date(acc.nextDue);
     const nextBillMonth = nextDueObj.toLocaleString('default', { month: 'long', year: 'numeric' });
-    const nextBillString = `${nextBillMonth} 20`; 
+    const nextBillString = `${nextBillMonth} ${FIXED_BILLING_DAY}`; 
 
     // --- SECTION A: PAYMENT INFO (Only for Receipts) ---
     let lastPayAmount = 0;
     let topSectionHtml = "";
     
     if (!isReminder && acc.payments.length > 0) {
+        // Get the very last payment made
         const lastPay = acc.payments[acc.payments.length - 1];
         mainDate = new Date(lastPay.date).toLocaleDateString();
         mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH-REF" : "CASH");
         lastPayAmount = Number(lastPay.amount);
         
+        // Update filter to match the payment date so we show charges relevant to that payment
+        filterMonth = lastPay.date.slice(0, 7);
+
         topSectionHtml = `
             <div class="therm-row" style="font-weight:bold; font-size:13px; border-bottom: 1px solid #ddd; padding-bottom:5px; margin-bottom:5px;">
-                <span>AMOUNT TENDERED</span>
+                <span>AMOUNT PAID NOW</span>
                 <span>₱${lastPayAmount.toFixed(2)}</span>
             </div>
         `;
     }
 
-    // --- SECTION B: BILLING CALCULATION WITH SUBTOTAL ---
+    // --- SECTION B: BILL CALCULATION ---
     let invoiceRows = ""; 
-    let displayTotal = 0;
-
-    // 1. Current Monthly Plan
-    invoiceRows += `<div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${planFee.toFixed(2)}</span></div>`;
     
-    // 2. Calculate Arrears/Excess Logic for Display
-    // We reverse-engineer the "Previous Balance" for display purposes
-    // Current Wallet Balance = Excess (Positive) or Debt (Negative)
-    const currentWallet = acc.excessLackingBalance;
-    
-    let calculationRunningTotal = planFee; // Start with plan fee
+    // 1. BASE PLAN
+    let currentMonthBill = acc.plan.fee;
+    invoiceRows += `<div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${acc.plan.fee.toFixed(2)}</span></div>`;
 
-    // LOGIC: The 'excessLackingBalance' is the result AFTER the plan fee was deducted in the logic.
-    // So to show the "Previous Balance", we look at the gap.
-    
-    if (isReminder) {
-        // REMINDER MODE: Show Plan + Previous Debt/Credit = Total Due
-        
-        // If Wallet is Negative (e.g., -1000), it means they owe 1000 TOTAL.
-        // Since Plan is say 500, the "Previous Lacking" must have been 500.
-        // Math: Total Due = Abs(Wallet) if Wallet < 0.
-        
-        if (currentWallet < 0) {
-            // LACKING SCENARIO
-            const totalOwed = Math.abs(currentWallet); 
-            const previousLacking = totalOwed - planFee; // How much was owed BEFORE this month's fee
-            
-            if(previousLacking > 0) {
-                invoiceRows += `<div class="therm-row" style="color:red;"><span>Add: Previous Balance</span><span>₱${previousLacking.toFixed(2)}</span></div>`;
-                calculationRunningTotal += previousLacking;
-            } else if (previousLacking < 0) {
-                 // This handles edge cases where wallet calculation varies slightly due to discounts
-                 // Usually doesn't happen if logic is pure, but safety first
-            }
-            
-            // --- FIX: ADD SUBTOTAL HERE ---
-            invoiceRows += `
-            <div class="therm-row" style="border-top: 1px dashed #aaa; margin-top: 2px; padding-top: 2px; font-weight:700; color:#555;">
-                <span>Subtotal</span>
-                <span>₱${calculationRunningTotal.toFixed(2)}</span>
-            </div>
-            `;
-
-            displayTotal = totalOwed;
-
-        } else {
-            // EXCESS/ADVANCE SCENARIO (Wallet is Positive)
-            // They have money in the bank. 
-            // If Wallet = 200, and Plan = 500. It means they "Paid" 200 via advance, need to pay 300.
-            // Or if Wallet = 700, Plan = 500. They are fully paid + 200 extra.
-            
-            // For a reminder, if they have enough coverage (Next Due is in future), bill is 0.
-            // If they have partial coverage, bill is remaining.
-            
-            // Logic: The Plan Fee is 500. 
-            // Less: Available Wallet (before this fee). 
-            // Actually, simply: Total Due = Plan Fee - (Wallet + Plan Fee... wait, simplistic view):
-            
-            // Simple View:
-            // Total Due = (Plan Fee) - (Current Wallet Balance + Plan Fee implied) ?? 
-            // Easier: If Wallet >= 0, Total Due is 0 (Because nextDue date moves forward).
-            // But if we are sending a bill for the *upcoming* month that isn't covered yet:
-            
-            // Let's stick to the visual the user usually expects:
-            // Plan: 500.
-            // Less: Advance Payment: -200.
-            // Total Due: 300.
-            
-            // If Wallet is positive, it means they have surplus.
-            // We only send a reminder if they actually owe money (Wallet < 0).
-            // But if user forces a reminder print:
-            
-            if(currentWallet >= 0) {
-                invoiceRows += `<div class="therm-row" style="color:green;"><span>Less: Advance Payment</span><span>- ₱${planFee.toFixed(2)}</span></div>`;
-                invoiceRows += `
-                <div class="therm-row" style="border-top: 1px dashed #aaa; margin-top: 2px; padding-top: 2px; font-weight:700; color:#555;">
-                    <span>Subtotal</span>
-                    <span>₱0.00</span>
+    // 2. ADD CHARGES (Only for this filter month)
+    if(acc.charges) {
+        acc.charges.forEach(c => {
+            if(c.date.startsWith(filterMonth)) {
+                currentMonthBill += c.amount; // Add to bill
+                invoiceRows += `<div class="therm-row" style="color:var(--toast-error);">
+                    <span>+ ${c.note || 'Extra Charge'}</span>
+                    <span>₱${c.amount.toFixed(2)}</span>
                 </div>`;
-                displayTotal = 0;
             }
-        }
-
-    } else {
-        // RECEIPT MODE
-        // Just show the Amount Tendered as the Total Paid
-        // But we can still show the "Subtotal" of what was applied if needed.
-        // For simplicity in receipt, usually we just show Total Paid.
-        // But per request "Add subtotal... on official receipt", we will try:
-        
-        displayTotal = lastPayAmount;
-        
-        // Visual breakdown for receipt
-        invoiceRows += `<div class="therm-row" style="color:#555; font-size:11px;"><span>Payment Applied</span><span>- ₱${lastPayAmount.toFixed(2)}</span></div>`;
-        
-        // Subtotal context is weird on a receipt (Proof of payment), but we can show Balance info
-        if (currentWallet < 0) {
-             invoiceRows += `
-             <div class="therm-row" style="border-top: 1px dashed #aaa; margin-top: 5px; padding-top: 2px;">
-                <span>Remaining Balance</span>
-                <span style="color:red">₱${Math.abs(currentWallet).toFixed(2)}</span>
-             </div>`;
-        } else {
-             invoiceRows += `
-             <div class="therm-row" style="border-top: 1px dashed #aaa; margin-top: 5px; padding-top: 2px;">
-                <span>New Wallet Balance</span>
-                <span style="color:green">₱${currentWallet.toFixed(2)}</span>
-             </div>`;
-        }
+        });
     }
 
-    // --- VAT CALCULATION ---
-    if (vatRate > 0) {
-        const vatAmount = displayTotal * (vatRate / 100);
-        invoiceRows += `
-        <div class="therm-row">
-            <span>VAT (${vatRate}%)</span>
-            <span>₱${vatAmount.toFixed(2)}</span>
+    // 3. DEDUCT DISCOUNTS (Only for this filter month)
+    if(acc.discounts) {
+        acc.discounts.forEach(d => {
+            if(d.date.startsWith(filterMonth)) {
+                currentMonthBill -= d.amount; // Deduct from bill
+                invoiceRows += `<div class="therm-row" style="color:var(--toast-success);">
+                    <span>- ${d.note || 'Discount'}</span>
+                    <span>(₱${d.amount.toFixed(2)})</span>
+                </div>`;
+            }
+        });
+    }
+
+    // 4. SUBTOTAL LINE
+    invoiceRows += `
+    <div class="therm-row" style="border-top: 1px dashed #aaa; margin-top: 4px; padding-top: 4px; font-weight:bold;">
+        <span>SUBTOTAL (Current)</span>
+        <span>₱${currentMonthBill.toFixed(2)}</span>
+    </div>`;
+
+    // 5. PREVIOUS BALANCE / EXCESS CALCULATION
+    // The system "Wallet" (excessLackingBalance) holds the FINAL status.
+    // If Wallet is -1500 (Owes 1500) and Current Bill is 500:
+    // It means Previous Balance was 1000. 
+    // Calculation: Previous = (Inverse of Wallet) - Current Bill
+    
+    // Note: In this system, negative wallet = debt (Lacking). Positive = Credit (Excess).
+    // Total Amount Due = Current Bill + (Lacking) OR Current Bill - (Excess)
+    
+    // Let's rely on the wallet. 
+    // Total Due should theoretically match the wallet status (flipped to positive for "Due").
+    let totalDue = 0;
+    
+    // If Wallet is negative, they OWE money.
+    if(acc.excessLackingBalance < 0) {
+        totalDue = Math.abs(acc.excessLackingBalance);
+    } else {
+        // If Wallet is positive, they have CREDIT. Total Due is 0 (or negative technically).
+        totalDue = 0; 
+    }
+
+    // Calculate the "Previous Balance" portion by comparing Total Due vs Current Bill
+    let previousBalance = totalDue - currentMonthBill;
+
+    // RENDER PREVIOUS BALANCE ROW
+    if (previousBalance > 0) {
+        // Positive previous balance means Arrears/Lacking from before
+        invoiceRows += `<div class="therm-row" style="color:red; font-size:11px;">
+            <span>+ Previous Lacking</span>
+            <span>₱${previousBalance.toFixed(2)}</span>
         </div>`;
-        displayTotal += vatAmount;
+    } else if (previousBalance < 0) {
+        // Negative previous balance means they had Excess/Advance
+        invoiceRows += `<div class="therm-row" style="color:green; font-size:11px;">
+            <span>- Less: Excess/Advance</span>
+            <span>(₱${Math.abs(previousBalance).toFixed(2)})</span>
+        </div>`;
+        
+        // Special Case: If their Excess is so big it covers the whole bill
+        // totalDue will be 0.
+    }
+
+    // --- VAT (Optional Display) ---
+    if (vatRate > 0) {
+        const vatAmount = currentMonthBill * (vatRate / 100);
+        invoiceRows += `<div class="therm-row" style="font-size:10px; color:#666;"><span>VAT Included (${vatRate}%)</span><span>₱${vatAmount.toFixed(2)}</span></div>`;
     }
 
     // --- PERMITS DISPLAY ---
@@ -4220,7 +4184,22 @@ function generateInvoiceHtml(acc, isReminder = false) {
         permitHtml += `</div>`;
     }
 
-    // --- RENDER HTML ---
+    // --- FINAL TOTAL DISPLAY ---
+    // If it's a Reminder, show TOTAL DUE. 
+    // If it's a Receipt, show TOTAL DUE (Account Balance) relative to what they just paid.
+    
+    let grandTotalLabel = isReminder ? "TOTAL AMOUNT DUE" : "TOTAL ACCOUNT DUE";
+    
+    // If they have excess money (Wallet > 0), show "WALLET BALANCE" instead of Due
+    let grandTotalValue = totalDue;
+    let grandTotalColor = "#000";
+
+    if (acc.excessLackingBalance > 0) {
+        grandTotalLabel = "WALLET FUND (Advance)";
+        grandTotalValue = acc.excessLackingBalance;
+        grandTotalColor = "green";
+    }
+
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -4245,12 +4224,15 @@ function generateInvoiceHtml(acc, isReminder = false) {
         </div>
 
         ${topSectionHtml}
-        ${invoiceRows}
+        
+        <div style="margin-top:10px;">
+            ${invoiceRows}
+        </div>
         
         <div class="inv-subtotal-section">
-            <div class="therm-row" style="font-size: 16px; font-weight: 800; margin-top:5px;">
-                <span>${isReminder ? 'TOTAL DUE' : 'TOTAL PAID'}:</span>
-                <span>₱${displayTotal.toFixed(2)}</span>
+            <div class="therm-row" style="font-size: 16px; font-weight: 800; margin-top:5px; color:${grandTotalColor}">
+                <span>${grandTotalLabel}:</span>
+                <span>₱${grandTotalValue.toFixed(2)}</span>
             </div>
         </div>
         
