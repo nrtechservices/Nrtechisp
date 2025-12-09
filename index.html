@@ -603,39 +603,7 @@
     border-bottom: 1px solid var(--border);
 }
 
-/* --- CALCULATOR STYLES --- */
-.calc-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-    margin-top: 15px;
-}
-.calc-btn {
-    background: var(--bg);
-    color: var(--text);
-    border: 1px solid var(--border);
-    padding: 15px;
-    font-size: 18px;
-    font-weight: 700;
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.2s;
-}
-.calc-btn:hover { background: var(--panel-2); }
-.calc-btn.accent { background: var(--accent); color: white; border: none; }
-.calc-btn.accent:hover { background: var(--accent-2); }
-.calc-display {
-    width: 100%;
-    background: #222;
-    color: #0f0;
-    font-family: 'Courier New', Courier, monospace;
-    font-size: 24px;
-    text-align: right;
-    padding: 15px;
-    border-radius: 8px;
-    border: 2px solid #555;
-    margin-bottom: 5px;
-}
+
 
 
 /* --- MODERN GOLD INVOICE DESIGN --- */
@@ -1101,6 +1069,35 @@
     to { transform: translateY(0); opacity: 1; }
 }
 
+/* --- NEW INVOICE DETAILS --- */
+.inv-detail-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 11px;
+    margin-bottom: 2px;
+}
+.inv-subtotal-section {
+    border-top: 1px dashed #000;
+    margin-top: 5px;
+    padding-top: 5px;
+}
+.inv-permits {
+    font-size: 9px; 
+    text-align: center; 
+    margin-bottom: 10px;
+    color: #555;
+}
+/* Settings Modal Styles */
+.settings-group {
+    border: 1px solid var(--border);
+    padding: 10px;
+    border-radius: 8px;
+    margin-bottom: 15px;
+    background: var(--bg);
+}
+.permit-item {
+    display: flex; gap: 5px; margin-bottom: 5px;
+}
 
 </style>
 
@@ -1230,9 +1227,6 @@
     <button id="navBtnDashboard">
         <span>&#128202;</span> <div>Dashboard</div>
     </button>
-    <button id="navBtnCalculator">
-        <span>🧮</span> <div>Calc</div>
-    </button>
     <button id="navBtnSettings">
         <span>&#9881;</span> <div>Settings</div>
     </button>
@@ -1259,10 +1253,6 @@
             Payment Logs
         </button>
         
-        <button id="dashBtnCalculator">
-            <span style="font-size: 24px;">🧮</span>
-            Calculator
-        </button>
         </div>
   </div>
 </div>
@@ -1584,6 +1574,21 @@
       <h3 style="color: var(--accent-2);">Administrator Settings</h3>
       <button id="closeSettings" class="no-print ghost small">Close</button>
     </div>
+    <h4 style="color: var(--accent); margin-top: 0;">📄 Invoice Customization</h4>
+<div class="settings-group">
+    <label class="muted">VAT / Tax Rate (%)</label>
+    <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
+        <input id="settingVatRate" type="number" placeholder="0" style="width: 80px;" />
+        <span class="muted" style="font-size:12px;">(Leave 0 or empty to hide VAT)</span>
+    </div>
+
+    <label class="muted">Business Permits / Licenses (Shown on Receipt)</label>
+    <div id="settingsPermitList">
+        </div>
+    <button id="btnAddPermit" class="small ghost" style="margin-top:5px;">+ Add Permit/License</button>
+</div>
+
+
     <div style="margin-top:12px; max-height: 80vh; overflow-y: auto;">
         
         <h4 style="color: var(--accent); margin-top: 0;">📦 Internet Plans & Installation Fees</h4>
@@ -1636,38 +1641,6 @@
     </button>
 </div>
 
-<hr style="margin:20px 0; border-color: var(--border);">
-<h4 style="color: var(--accent); margin-top: 0;">🧾 Invoice / Receipt Customization</h4>
-<div style="background: var(--bg); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
-    <label class="muted">Business Name (Header)</label>
-    <input id="setBizName" placeholder="e.g. N'RTECH INTERNET" />
-    
-    <div style="display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:8px;">
-        <div>
-            <label class="muted">Contact Number</label>
-            <input id="setBizContact" placeholder="0912-345-6789" />
-        </div>
-        <div>
-            <label class="muted">Address</label>
-            <input id="setBizAddress" placeholder="City, Province" />
-        </div>
-    </div>
-
-    <label class="muted" style="margin-top:8px;">TIN / VAT Reg #</label>
-    <input id="setBizTIN" placeholder="000-000-000-000" />
-    
-    <label class="muted" style="margin-top:8px;">DTI / Business Permit #</label>
-    <input id="setBizDTI" placeholder="DTI-XYZ-12345" />
-
-    <label class="muted" style="margin-top:8px;">VAT % (Enter number or N/A)</label>
-    <input id="setBizVAT" placeholder="e.g. 12 or N/A" />
-
-    <label class="muted" style="margin-top:8px;">Footer Note / Slogan</label>
-    <input id="setBizFooter" placeholder="Thank you for your business!" />
-    
-    <button id="btnSaveInvoiceSettings" class="small" style="width:100%; margin-top:10px; background:var(--accent-2);">💾 Save Invoice Details</button>
-</div>
-
 <input type="file" id="fileRecoverInput" accept=".csv" style="display:none">
 
 <hr style="margin:20px 0; border-color: var(--border);">
@@ -1681,39 +1654,7 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="modalCalculatorBackdrop">
-  <div class="modal" style="width: min(95%, 350px);">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <h3 style="color: var(--accent-2);">🧮 Calculator</h3>
-      <button id="closeCalculator" class="no-print ghost small">Close</button>
-    </div>
-    <div style="margin-top:10px">
-        <input type="text" id="calcDisplay" class="calc-display" readonly value="">
-        <div class="calc-grid">
-            <button class="calc-btn" onclick="calcAppend('7')">7</button>
-            <button class="calc-btn" onclick="calcAppend('8')">8</button>
-            <button class="calc-btn" onclick="calcAppend('9')">9</button>
-            <button class="calc-btn accent" onclick="calcAppend('/')">÷</button>
-            
-            <button class="calc-btn" onclick="calcAppend('4')">4</button>
-            <button class="calc-btn" onclick="calcAppend('5')">5</button>
-            <button class="calc-btn" onclick="calcAppend('6')">6</button>
-            <button class="calc-btn accent" onclick="calcAppend('*')">×</button>
-            
-            <button class="calc-btn" onclick="calcAppend('1')">1</button>
-            <button class="calc-btn" onclick="calcAppend('2')">2</button>
-            <button class="calc-btn" onclick="calcAppend('3')">3</button>
-            <button class="calc-btn accent" onclick="calcAppend('-')">-</button>
-            
-            <button class="calc-btn" onclick="calcAppend('0')">0</button>
-            <button class="calc-btn" onclick="calcAppend('.')">.</button>
-            <button class="calc-btn" style="background:var(--toast-error); color:white;" onclick="calcClear()">C</button>
-            <button class="calc-btn accent" onclick="calcAppend('+')">+</button>
-        </div>
-        <button class="calc-btn accent" style="width: 100%; margin-top: 10px;" onclick="calcEqual()">=</button>
-    </div>
-  </div>
-</div>
+
 <div class="modal-backdrop" id="modalChargeBackdrop">
   <div class="modal" style="width: min(95%, 400px);">
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -1989,16 +1930,61 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
     
-    // --- INVOICE SETTINGS STORAGE ---
-const INV_SETTINGS_KEY = 'nrtech_inv_settings_v3';
-let invoiceSettings = JSON.parse(localStorage.getItem(INV_SETTINGS_KEY)) || {
-    name: "N'RTECH INTERNET",
-    address: "San Vicente, Tubod, LDN",
-    contact: "0946-895-3577",
-    tin: "",
-    dti: "",
-    vat: "N/A", // Default to Hidden
-    footer: "Thank you for your payment!"
+ // --- NEW: INVOICE SETTINGS MANAGEMENT ---
+const INVOICE_SETTINGS_KEY = 'nrtech_invoice_settings_v4';
+let invoiceSettings = JSON.parse(localStorage.getItem(INVOICE_SETTINGS_KEY)) || {
+    vatRate: 0,
+    permits: [] // Format: { id: 1, name: "BIR", number: "123-456" }
+};
+
+function saveInvoiceSettings() {
+    localStorage.setItem(INVOICE_SETTINGS_KEY, JSON.stringify(invoiceSettings));
+}
+
+// --- Initialize Settings UI ---
+function renderInvoiceSettingsUI() {
+    document.getElementById('settingVatRate').value = invoiceSettings.vatRate || '';
+    
+    const container = document.getElementById('settingsPermitList');
+    container.innerHTML = '';
+    
+    invoiceSettings.permits.forEach((p, idx) => {
+        const div = document.createElement('div');
+        div.className = 'permit-item';
+        div.innerHTML = `
+            <input placeholder="Permit Name (e.g. DTI)" value="${p.name}" onchange="updatePermit(${idx}, 'name', this.value)">
+            <input placeholder="Permit No." value="${p.number}" onchange="updatePermit(${idx}, 'number', this.value)">
+            <button class="small ghost" style="color:red; border-color:red;" onclick="deletePermit(${idx})">×</button>
+        `;
+        container.appendChild(div);
+    });
+}
+
+// Helper functions for Settings UI
+window.updatePermit = function(idx, field, val) {
+    invoiceSettings.permits[idx][field] = val;
+    saveInvoiceSettings();
+};
+window.deletePermit = function(idx) {
+    invoiceSettings.permits.splice(idx, 1);
+    saveInvoiceSettings();
+    renderInvoiceSettingsUI();
+};
+document.getElementById('btnAddPermit').onclick = () => {
+    invoiceSettings.permits.push({ name: '', number: '' });
+    saveInvoiceSettings();
+    renderInvoiceSettingsUI();
+};
+document.getElementById('settingVatRate').onchange = (e) => {
+    invoiceSettings.vatRate = Number(e.target.value);
+    saveInvoiceSettings();
+};
+
+// Hook into existing Settings Button to render UI
+const existingSettingsBtn = document.getElementById('navBtnSettings').onclick;
+document.getElementById('navBtnSettings').onclick = () => {
+    if(typeof existingSettingsBtn === 'function') existingSettingsBtn(); // Call original
+    renderInvoiceSettingsUI(); // Render new UI
 };
 
  
@@ -2209,8 +2195,10 @@ document.getElementById('toggleLoginPass').onclick = (e) => {
 document.getElementById('btnLogout').onclick = async () => {
     const shouldLogout = await customConfirm("Are you sure you want to log out?");
     if (shouldLogout) {
-        performFullLogout();
+        setLoginState(false);
         showToast("You have been logged out.", 'warning');
+        // Close settings modal if open
+        modalSettingsBackdrop.style.display = 'none';
     }
 };
 
@@ -2269,18 +2257,11 @@ function showSessionWarning() {
     }, 1000);
 }
 
-// 3. Perform the Logout (UPDATED)
+// 3. Perform the Logout
 function performAutoLogout() {
-    // Stop the countdown
-    clearInterval(countdownInterval);
-    
-    // Call the new cleaner function
-    performFullLogout();
-
-    // Show a nice Toast explaining why
-    showToast("⚠️ Session Expired due to inactivity. Redirected to Portal.", "error");
-}
-
+    setLoginState(false);
+    activeAccountIndex = null;
+    activeClientAccount = null;
     
     // Hide warning modal
     document.getElementById('sessionWarningBackdrop').style.display = 'none';
@@ -2291,7 +2272,7 @@ function performAutoLogout() {
     
     // Show a nice Toast instead of ugly alert
     showToast("⚠️ Session Expired due to inactivity.", "error");
-
+}
 
 // 4. Attach Event Listeners for User Activity
 const events = ['mousemove', 'keypress', 'click', 'scroll', 'touchstart'];
@@ -2451,7 +2432,7 @@ function renderNotifications() {
         return;
     }
 
-    adminNotifications.forEach((n) => {
+    adminNotifications.forEach((n, index) => { // Note: added 'index' here
         const item = document.createElement('div');
         item.className = `notif-item ${n.read ? '' : 'unread'}`;
         let icon = '🔔';
@@ -2461,17 +2442,14 @@ function renderNotifications() {
         item.innerHTML = `
             <div style="display:flex; justify-content:space-between;">
                 <span class="notif-type">${icon} ${new Date(n.date).toLocaleDateString()}</span>
-                ${!n.read ? '<span style="color:red; font-size:10px;">● New</span>' : ''}
+                <span style="color:red; font-size:10px; cursor:pointer;">❌ Clear</span>
             </div>
             <div>${n.message}</div>
         `;
         
+        // --- UPDATED CLICK LOGIC: DELETE ON CLICK ---
         item.onclick = () => {
-            n.read = true;
-            localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(adminNotifications));
-            updateNotificationBadge();
-            renderNotifications();
-            
+            // 1. Perform the action (Redirect)
             if(n.action === 'viewPendingClients') {
                 document.getElementById('btnViewPendingClients').click();
             } else if (n.action === 'viewUpgrades') {
@@ -2480,7 +2458,17 @@ function renderNotifications() {
                 const accIdx = accounts.findIndex(a => a.accountNumber === n.dataId);
                 if(accIdx > -1) openAccount(accIdx);
             }
-            document.getElementById('notificationPopup').style.display = 'none';
+
+            // 2. DELETE the notification permanently
+            adminNotifications.splice(index, 1); 
+            
+            // 3. Save and Refresh
+            localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(adminNotifications));
+            updateNotificationBadge();
+            renderNotifications(); // Refresh list immediately
+            
+            // Optional: Close popup if list empty
+            if(adminNotifications.length === 0) document.getElementById('notificationPopup').style.display = 'none';
         };
         list.appendChild(item);
     });
@@ -2796,102 +2784,119 @@ function renderClientTally(clientTally) {
     });
 }
 
+// --- FIX: Added missing helper function ---
+function getEffectiveMonthlyFee(acc) {
+    // Return the plan fee, ensuring it is a number. 
+    // Default to a high number if 0 to prevent infinite loops.
+    const fee = Number(acc.plan.fee);
+    return fee > 0 ? fee : 999999; 
+}
+
 /* =========================================
-   UPDATED CORE LOGIC: POINTS & REWARDS
+   UPDATED CORE LOGIC: POINTS & REWARDS (FIXED)
    ========================================= */
+
+// 1. Helper Function (Was missing)
+function getEffectiveMonthlyFee(acc) {
+    return Number(acc.plan.fee) || 0;
+}
+
+// 2. Main Logic
 function recomputePointsAndBalance(acc) {
     // 1. Reset Counters
     acc.points = { advance: 0, ontime: 0, lost: 0 };
     
-    // Sort payments
+    // 2. Sort payments by date
     const sortedPayments = [...acc.payments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // Calculate Net Adjustments (Charges/Discounts)
+    // 3. Initialize Wallet with Adjustments
+    let wallet = 0; 
     let netAdjustments = 0;
+    
     if(acc.charges) acc.charges.forEach(c => netAdjustments -= Number(c.amount));
     if(acc.discounts) acc.discounts.forEach(d => netAdjustments += Number(d.amount));
+    
+    wallet += netAdjustments;
 
-    // Initialize Wallet
-    let wallet = netAdjustments; 
-    let coverageCursor = sortedPayments.length > 0 ? new Date(sortedPayments[0].date) : new Date();
-    // Align cursor to the 20th of the starting month
-    coverageCursor = new Date(coverageCursor.getFullYear(), coverageCursor.getMonth(), 20);
+    // 4. Set Coverage Cursor
+    let coverageCursor;
+    if (sortedPayments.length > 0) {
+        let firstDate = new Date(sortedPayments[0].date);
+        coverageCursor = new Date(firstDate.getFullYear(), firstDate.getMonth(), FIXED_BILLING_DAY);
+    } else {
+        let now = new Date();
+        coverageCursor = new Date(now.getFullYear(), now.getMonth(), FIXED_BILLING_DAY);
+    }
 
+    // 5. Process Payments
     sortedPayments.forEach(p => {
         const payAmt = Number(p.amount);
         const payDate = new Date(p.date);
-        const payDay = payDate.getDate(); // 1 to 31
+        const payDay = payDate.getDate();
 
+        // Add payment to wallet
         wallet += payAmt;
-        p.coveredMonths = []; 
+        p.coveredMonths = [];
 
-        // PAY OFF MONTHS
-        while (wallet >= getEffectiveMonthlyFee(acc)) {
-            const currentPlanFee = getEffectiveMonthlyFee(acc); // Handle 50% off or Free logic
-            
-            // Check for Point Rewards Trigger (Before deducting)
-            let rewardApplied = false;
+        // --- FIXED LOOP LOGIC ---
+        const fee = getEffectiveMonthlyFee(acc);
 
-            // RULE: 12 Advance Points = Free Month
-            if (acc.points.advance >= 12) {
-                wallet -= 0; // Free month (0 cost)
-                acc.points.advance = 0; // Auto return to 0
-                p.note = (p.note || "") + " [REWARD: Free Month Applied]";
-                rewardApplied = true;
-            }
-            // RULE: 12 Ontime Points = 50% Off
-            else if (acc.points.ontime >= 12) {
-                wallet -= (acc.plan.fee * 0.5); // 50% Off
-                acc.points.ontime = 0; // Auto return to 0
-                p.note = (p.note || "") + " [REWARD: 50% Off Applied]";
-                rewardApplied = true;
-            } 
-            else {
-                // Normal Payment
-                wallet -= acc.plan.fee;
-            }
-
-            p.coveredMonths.push(getMonthName(coverageCursor));
-
-            // --- POINTING SYSTEM LOGIC ---
-            // Only apply points if this payment covered a specific month's bill
-            if (!rewardApplied) {
-                // Determine if payment is for current, future, or past
-                const isSameMonth = payDate.getFullYear() === coverageCursor.getFullYear() && 
-                                    payDate.getMonth() === coverageCursor.getMonth();
-                const isBeforeMonth = payDate < new Date(coverageCursor.getFullYear(), coverageCursor.getMonth(), 1);
-
-                if (isSameMonth || isBeforeMonth) {
-                    // 1st to 19th -> Advance
-                    if (payDay >= 1 && payDay <= 19) {
-                        acc.points.advance++;
-                    } 
-                    // 20th Only -> Ontime
-                    else if (payDay === 20) {
-                        acc.points.ontime++;
-                    }
-                    // 21st+ -> No points (Penalty logic is handled in Automation function)
+        // Safety break for 0 fee plans
+        if (fee > 0) {
+            while (wallet >= fee) {
+                // Check Reward Eligibility
+                let rewardUsed = false;
+                if (acc.points.advance >= 12) {
+                    // Free Month
+                    acc.points.advance = 0; 
+                    p.note = (p.note || "") + " [REWARD: Free Month Used]";
+                    rewardUsed = true;
+                    // Wallet doesn't decrease, essentially "paying" 0 for this month
+                } else if (acc.points.ontime >= 12) {
+                    // 50% Off
+                    wallet -= (fee * 0.5);
+                    acc.points.ontime = 0; 
+                    p.note = (p.note || "") + " [REWARD: 50% Off Used]";
+                    rewardUsed = true;
                 } else {
-                    // Late payment for past month
-                    acc.points.lost++; 
+                    // Normal Payment
+                    wallet -= fee;
                 }
-            }
 
-            // Move to next month
-            coverageCursor = addMonths(coverageCursor, 1);
+                // Record Coverage
+                p.coveredMonths.push(getMonthName(coverageCursor));
+
+                // --- POINT CALCULATION LOGIC ---
+                if (!rewardUsed) {
+                    const isPaymentMonth = (payDate.getMonth() === coverageCursor.getMonth()) && 
+                                           (payDate.getFullYear() === coverageCursor.getFullYear());
+                    
+                    const isPaymentBeforeCursor = payDate < coverageCursor;
+
+                    if (isPaymentMonth) {
+                        if (payDay === FIXED_BILLING_DAY) {
+                            acc.points.ontime++; 
+                        } else if (payDay < FIXED_BILLING_DAY) {
+                            acc.points.advance++; 
+                        }
+                    } else if (isPaymentBeforeCursor) {
+                        acc.points.advance++;
+                    } else {
+                        acc.points.lost++;
+                    }
+                }
+
+                // Move cursor to next month
+                coverageCursor = addMonths(coverageCursor, 1);
+            }
         }
+        
         p.balanceAfter = wallet; 
     });
 
-    acc.excessLackingBalance = wallet; 
+    // 6. Final State Update
+    acc.excessLackingBalance = wallet;
     acc.nextDue = coverageCursor.toISOString().slice(0, 10);
-    
-    // Status visual update is handled in renderAccounts using CSS
-}
-
-// Helper to get fee (can be expanded)
-function getEffectiveMonthlyFee(acc) {
-    return acc.plan.fee; 
 }
 
 
@@ -2920,40 +2925,6 @@ document.getElementById('navBtnDashboard').onclick = () => {
     clearActiveNav();
     document.getElementById('navBtnDashboard').classList.add('active');
 };
-
-// 1. LOAD SETTINGS into Inputs when opening the modal
-const originalSettingsClick = document.getElementById('navBtnSettings').onclick;
-document.getElementById('navBtnSettings').onclick = () => {
-    // Call original logic first
-    if(originalSettingsClick) originalSettingsClick();
-    
-    // Load Invoice Data
-    document.getElementById('setBizName').value = invoiceSettings.name;
-    document.getElementById('setBizAddress').value = invoiceSettings.address;
-    document.getElementById('setBizContact').value = invoiceSettings.contact;
-    document.getElementById('setBizTIN').value = invoiceSettings.tin;
-    document.getElementById('setBizDTI').value = invoiceSettings.dti;
-    // NEW: Load VAT
-    document.getElementById('setBizVAT').value = invoiceSettings.vat || "N/A";
-    document.getElementById('setBizFooter').value = invoiceSettings.footer;
-};
-
-// 2. SAVE SETTINGS Event Listener
-document.getElementById('btnSaveInvoiceSettings').onclick = () => {
-    invoiceSettings.name = document.getElementById('setBizName').value.trim() || "N'RTECH INTERNET";
-    invoiceSettings.address = document.getElementById('setBizAddress').value.trim();
-    invoiceSettings.contact = document.getElementById('setBizContact').value.trim();
-    invoiceSettings.tin = document.getElementById('setBizTIN').value.trim();
-    invoiceSettings.dti = document.getElementById('setBizDTI').value.trim();
-    // NEW: Save VAT
-    invoiceSettings.vat = document.getElementById('setBizVAT').value.trim(); 
-    invoiceSettings.footer = document.getElementById('setBizFooter').value.trim();
-
-    localStorage.setItem(INV_SETTINGS_KEY, JSON.stringify(invoiceSettings));
-    showToast('Invoice settings saved successfully!', 'success');
-};
-
-
 document.getElementById('navBtnSettings').onclick = () => {
     document.getElementById('currentPassword').value = '';
     document.getElementById('newPassword').value = '';
@@ -3061,6 +3032,8 @@ document.getElementById('dashBtnLiquidation').onclick = () => {
 document.getElementById('dashBtnPaymentLogs').onclick = () => {
     modalDashboardBackdrop.style.display = 'none';
     const today = new Date().toISOString().slice(0, 7);
+    
+
     document.getElementById('logsMonthFilter').value = today;
     renderPaymentLogs();
     modalPaymentLogsBackdrop.style.display = 'flex';
@@ -4068,198 +4041,223 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
     return monthNames.join(", ");
 }
 
+
 /* =========================================
-   INVOICE GENERATOR (UPDATED WITH VAT)
+   INVOICE GENERATOR (UPDATED FOR DATES, GCASH REF & MODE)
    ========================================= */
 function generateInvoiceHtml(acc, isReminder = false) {
     const today = new Date();
+    const planFee = acc.plan.fee;
     
-    // 1. DYNAMIC HEADER INFO (From Settings)
-    const bizName = invoiceSettings.name;
-    const bizAddr = invoiceSettings.address;
-    const bizContact = invoiceSettings.contact;
-    const bizTin = invoiceSettings.tin ? `TIN: ${invoiceSettings.tin}` : "";
-    const bizDti = invoiceSettings.dti ? `DTI/Permit: ${invoiceSettings.dti}` : "";
-    const bizFooter = invoiceSettings.footer;
-    const bizVatSetting = invoiceSettings.vat || "N/A"; // NEW: Get VAT Setting
+    // 1. Get Settings
+    const vatRate = invoiceSettings.vatRate || 0; // Default 0 (Hidden)
+    const permits = invoiceSettings.permits || [];
 
-    // 2. VARIABLES
-    let displayDate = today.toLocaleDateString();
-    let refNum = isReminder ? "BILLING-STMT" : "RECEIPT";
-    let docTitle = isReminder ? "BILLING STATEMENT" : "OFFICIAL RECEIPT";
-    let rowsHtml = "";
-    let totalDue = 0;
-    let paymentModeHtml = "";
+    // 2. Determine Transaction Context
+    let mainRef = "REMINDER";
+    let mainDate = today.toLocaleDateString();
+    let coveredMonthsStr = "N/A";
+    
+    // Totals Calculation Variables
+    let subtotal = 0;
+    let totalDiscount = 0;
+    let totalCharges = 0;
+    let penaltyTotal = 0;
+    let balanceApplied = 0; // Lacking or Excess from previous
+    let paymentAmount = 0;
 
-    // 3. LOGIC GENERATION
-    if (isReminder) {
-        // --- REMINDER / STATEMENT MODE (Detailed Computation) ---
-        
-        // A. Base Plan
-        rowsHtml += `
-        <div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${acc.plan.fee.toFixed(2)}</span></div>`;
-        totalDue += acc.plan.fee;
+    // --- LOGIC: What are we printing? ---
+    if (!isReminder && acc.payments.length > 0) {
+        // RECEIPT MODE (Based on Last Payment)
+        const lastPay = acc.payments[acc.payments.length - 1];
+        mainDate = new Date(lastPay.date).toLocaleDateString();
+        mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH-REF" : "CASH");
+        paymentAmount = lastPay.amount;
 
-        // B. Previous Balance
-        const prevBal = acc.excessLackingBalance;
-        if(prevBal !== 0) {
-            const label = prevBal > 0 ? "Less: Advance/Wallet" : "Add: Previous Balance";
-            const color = prevBal > 0 ? "green" : "red";
-            totalDue -= prevBal; 
-            
-            rowsHtml += `
-            <div class="therm-row" style="color:${color};">
-                <span>${label}</span>
-                <span>${prevBal > 0 ? '-' : '+'}₱${Math.abs(prevBal).toFixed(2)}</span>
-            </div>`;
-        }
-
-        // C. Unpaid Charges (This Month)
-        const currentMonthStr = today.toISOString().slice(0, 7);
-        if(acc.charges) {
-            acc.charges.forEach(c => {
-                if(c.date.startsWith(currentMonthStr)) {
-                     rowsHtml += `
-                    <div class="therm-row" style="color:var(--toast-error);">
-                        <span>Add: ${c.note}</span><span>+₱${c.amount.toFixed(2)}</span>
-                    </div>`;
-                    totalDue += c.amount;
-                }
-            });
-        }
-
-        // D. Discounts (This Month)
-        if(acc.discounts) {
-            acc.discounts.forEach(d => {
-                if(d.date.startsWith(currentMonthStr)) {
-                     rowsHtml += `
-                    <div class="therm-row" style="color:var(--toast-success);">
-                        <span>Less: ${d.note}</span><span>-₱${d.amount.toFixed(2)}</span>
-                    </div>`;
-                    totalDue -= d.amount;
-                }
-            });
+        // Coverage
+        if (lastPay.coveredMonths && lastPay.coveredMonths.length > 0) {
+            coveredMonthsStr = lastPay.coveredMonths.join(", ");
+        } else {
+            coveredMonthsStr = "Partial / Balance Payment";
         }
         
-        if(totalDue < 0) totalDue = 0; 
+        // Base Subtotal is usually the plan fee * months covered, 
+        // OR the payment amount if it's partial.
+        // For simplicity in receipt, we start with the Payment Amount as the base credit.
+        subtotal = paymentAmount; 
 
     } else {
-        // --- RECEIPT MODE ---
-        if(acc.payments.length === 0) return "<div>No payments found.</div>";
-        const p = acc.payments[acc.payments.length - 1];
+        // REMINDER MODE (Total Debt)
+        const nextDueParts = acc.nextDue.split('-');
+        // Calculate raw months due
+        const due = new Date(nextDueParts[0], nextDueParts[1]-1, 20);
+        const monthsDiff = (today.getFullYear() - due.getFullYear()) * 12 + (today.getMonth() - due.getMonth());
+        const monthsOwed = Math.max(1, monthsDiff + 1); // At least 1 month
         
-        displayDate = new Date(p.date).toLocaleDateString();
-        refNum = p.referenceNumber || "CASH";
+        subtotal = planFee * monthsOwed;
         
-        rowsHtml += `
-        <div class="therm-row" style="font-size:14px; font-weight:bold;">
-            <span>AMOUNT PAID</span><span>₱${p.amount.toFixed(2)}</span>
-        </div>`;
-        
-        if(p.note) {
-             rowsHtml += `<div class="therm-row" style="font-size:11px; color:#555; font-style:italic;"><span>Note: ${p.note}</span><span></span></div>`;
+        // If there is lacking balance (negative excess), add it
+        if (acc.excessLackingBalance < 0) {
+            balanceApplied = Math.abs(acc.excessLackingBalance); // Add debt
         }
-
-        if(p.surchargeApplied > 0) {
-            rowsHtml += `
-            <div class="therm-row" style="color:red; font-size:11px;">
-                <span>(Includes Surcharge)</span><span>(₱${p.surchargeApplied})</span>
-            </div>`;
-        }
-        
-        // Show resulting balance
-        const bal = p.balanceAfter || 0;
-        let balText = "";
-        let balColor = "black";
-        
-        if(bal > 0) { balText = "Wallet/Excess:"; balColor = "green"; }
-        else if(bal < 0) { balText = "Remaining Due:"; balColor = "red"; }
-        else { balText = "Account Balance:"; }
-
-        rowsHtml += `<div class="therm-divider"></div>`;
-        rowsHtml += `
-        <div class="therm-row" style="color:${balColor}; font-weight:bold;">
-            <span>${balText}</span><span>₱${Math.abs(bal).toFixed(2)}</span>
-        </div>`;
-
-        totalDue = p.amount; 
-        paymentModeHtml = `
-            <div class="therm-row">
-                <span>Payment Mode:</span>
-                <span style="font-weight:bold; text-transform:uppercase;">${p.method || "CASH"}</span>
-            </div>`;
     }
 
-    // --- NEW: VAT CALCULATION LOGIC ---
+    // 3. Process Specific Charges/Discounts for the period
+    // We filter charges/discounts that happened in the current month (for receipt) 
+    // or all unpaid ones (for reminder - simplified here to current month for display context)
+    const invMonth = new Date(mainDate).toISOString().slice(0, 7);
+    
+    let itemsHtml = "";
+
+    // Add Charges
+    if (acc.charges) {
+        acc.charges.forEach(c => {
+            if (c.date.startsWith(invMonth)) {
+                itemsHtml += `
+                <div class="inv-detail-row" style="color:#d32f2f;">
+                    <span>[+] ${c.note}</span>
+                    <span>₱${c.amount.toFixed(2)}</span>
+                </div>`;
+                totalCharges += c.amount;
+            }
+        });
+    }
+
+    // Add Discounts
+    if (acc.discounts) {
+        acc.discounts.forEach(d => {
+            if (d.date.startsWith(invMonth)) {
+                itemsHtml += `
+                <div class="inv-detail-row" style="color:green;">
+                    <span>[-] ${d.note}</span>
+                    <span>₱${d.amount.toFixed(2)}</span>
+                </div>`;
+                totalDiscount += d.amount;
+            }
+        });
+    }
+
+    // 4. Calculate Final Totals
+    // Base amount (Plan Fee usually) + Charges - Discounts + Tax
+    
+    // For Receipt: We show what was PAID.
+    // For Reminder: We show what is DUE.
+    
+    let displayTotal = 0;
+    let vatAmount = 0;
+
+    if(isReminder) {
+        // Reminder Logic
+        let taxableBase = subtotal + totalCharges + balanceApplied - totalDiscount;
+        if (vatRate > 0) {
+            vatAmount = taxableBase * (vatRate / 100);
+        }
+        displayTotal = taxableBase + vatAmount;
+    } else {
+        // Receipt Logic (The Amount Paid acts as the Total)
+        // We back-calculate to show breakdown roughly, or just list the items paid.
+        displayTotal = paymentAmount;
+        // VAT logic on receipt: usually VAT is inclusive or exclusive. 
+        // Let's assume inclusive for simple receipt display, or additive if configured.
+        if (vatRate > 0) {
+             vatAmount = paymentAmount * (vatRate / 100);
+             // If additive, we'd add it. If inclusive, we extract it. 
+             // Request implies "add it to the total".
+             // displayTotal += vatAmount; // (Optional: depending on business logic)
+        }
+    }
+
+    // 5. Generate Permit HTML
+    let permitHtml = "";
+    if (permits.length > 0) {
+        permitHtml = `<div class="inv-permits">`;
+        permits.forEach(p => {
+            permitHtml += `<span>${p.name}: ${p.number}</span> &nbsp;|&nbsp; `;
+        });
+        permitHtml += `</div>`;
+    }
+
+    // 6. Generate VAT HTML (Hidden if 0)
     let vatHtml = "";
-    // Check if setting is NOT "N/A" and NOT empty
-    if(bizVatSetting && bizVatSetting.toUpperCase() !== "N/A" && bizVatSetting.trim() !== "") {
-        const vatPercent = parseFloat(bizVatSetting);
-        
-        // Ensure it is a valid number
-        if(!isNaN(vatPercent) && vatPercent > 0) {
-            const vatAmount = totalDue * (vatPercent / 100);
-            
-            // Render the VAT Row
-            vatHtml = `
-            <div class="therm-row" style="color:#555;">
-                <span>VAT (${vatPercent}%)</span>
-                <span>+₱${vatAmount.toFixed(2)}</span>
-            </div>`;
-            
-            // Add VAT to the Total Due
-            totalDue += vatAmount;
-        }
+    if (vatRate > 0) {
+        vatHtml = `
+        <div class="inv-detail-row">
+            <span>VAT (${vatRate}%)</span>
+            <span>₱${vatAmount.toFixed(2)}</span>
+        </div>`;
     }
 
-    // 4. GENERATE FINAL HTML
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
             <img src="logo.png" class="therm-logo" alt="Logo"><br>
-            <div class="therm-title" style="text-transform:uppercase; margin-bottom:2px;">${bizName}</div>
-            <div style="font-size:11px;">${bizAddr}</div>
-            <div style="font-size:11px;">${bizContact}</div>
+            <div class="therm-title">N'RTECH INTERNET</div>
+            <div style="font-size:11px;">San Vicente, Tubod, LDN</div>
+            <div style="font-size:11px;">0946-895-3577</div>
+            ${permitHtml}
         </div>
 
         <div class="therm-info">
-            <div class="therm-row"><span>Date:</span> <span>${displayDate}</span></div>
-            <div class="therm-row"><span>Ref #:</span> <b>${refNum}</b></div>
+            <div class="therm-row"><span>Date:</span> <span>${mainDate}</span></div>
+            <div class="therm-row"><span>Ref #:</span> <b>${mainRef}</b></div>
+            <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
-            <div class="therm-row"><span>Client:</span> <span>${acc.name}</span></div>
+            <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
         </div>
 
         <div class="therm-divider"></div>
-
-        <div style="font-weight:800; text-align:center; margin: 8px 0; border: 1px solid #000; padding:4px;">
-            ${docTitle}
+        <div style="font-weight:bold; text-align:center; margin: 5px 0;">
+            ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
         </div>
 
-        ${rowsHtml}
+        <div class="inv-detail-row"><span>Plan Fee</span><span>₱${acc.plan.fee.toFixed(2)}</span></div>
         
+        ${isReminder && balanceApplied > 0 ? 
+            `<div class="inv-detail-row" style="color:red;"><span>Prev. Lacking</span><span>₱${balanceApplied.toFixed(2)}</span></div>` : ''}
+
+        ${itemsHtml} 
+
         ${vatHtml}
 
-        <div class="therm-divider"></div>
-
-        <div class="therm-row" style="font-size: 16px; font-weight: 800;">
-            <span>${isReminder ? "TOTAL PAYABLE" : "TOTAL PAID"}:</span>
-            <span>₱${totalDue.toFixed(2)}</span>
+        <div class="inv-subtotal-section">
+            <div class="therm-row" style="font-size: 16px; font-weight: 800;">
+                <span>${isReminder ? 'TOTAL DUE' : 'AMOUNT PAID'}:</span>
+                <span>₱${displayTotal.toFixed(2)}</span>
+            </div>
+        </div>
+        
+        <div style="margin-top:10px; font-size:11px; background:#f9f9f9; padding:5px; border:1px solid #eee;">
+            <strong>Covered Period:</strong><br>
+            ${coveredMonthsStr}
+            
+            ${!isReminder && acc.excessLackingBalance > 0 ? 
+                `<div style="margin-top:4px; border-top:1px dashed #ccc; padding-top:2px;">
+                 <strong>Excess/Advance:</strong> ₱${acc.excessLackingBalance.toFixed(2)} (Next Bill)
+                 </div>` : ''}
+                 
+            ${!isReminder && acc.excessLackingBalance < 0 ? 
+                `<div style="margin-top:4px; border-top:1px dashed #ccc; padding-top:2px; color:red;">
+                 <strong>Still Lacking:</strong> ₱${Math.abs(acc.excessLackingBalance).toFixed(2)}
+                 </div>` : ''}
         </div>
 
-        ${paymentModeHtml}
-
-        <div style="margin-top:15px; text-align:center; font-size:10px; color:#555;">
-            ${bizTin ? `<div>${bizTin}</div>` : ''}
-            ${bizDti ? `<div>${bizDti}</div>` : ''}
+        <div class="therm-points-box">
+            <strong>LOYALTY POINTS</strong><br>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; margin-top:2px;">
+                <div>Adv<br><b>${acc.points.advance}</b></div>
+                <div>OnTime<br><b>${acc.points.ontime}</b></div>
+                <div>Lost<br><b>${acc.points.lost}</b></div>
+            </div>
         </div>
 
         <div class="therm-footer">
-            <br>
-            <i>${bizFooter}</i>
+            <i>${isReminder ? 'Please pay before due date.' : 'Thank you for your business!'}</i>
         </div>
     </div>
     `;
 }
+
+
 
 
 
@@ -4341,60 +4339,61 @@ setInterval(updateClock, 1000); updateClock();
 function checkDailySystemAutomations() {
     const today = new Date();
     const currentDay = today.getDate();
-    const currentMonthStr = today.toISOString().slice(0, 7); // "2023-12"
+    const currentMonthStr = today.toISOString().slice(0, 7); 
 
     let dataChanged = false;
 
     accounts.forEach(acc => {
-        // Calculate due dates
         const nextDueDate = new Date(acc.nextDue);
         
-        // Check if overdue relative to today
-        const isOverdue = today > nextDueDate;
-
-        if (isOverdue) {
+        // Only run logic if account is strictly overdue (Today > Due Date)
+        if (today > nextDueDate) {
             
-            // --- RANGE: 21st to 25th (Penalty Phase) ---
+            // --- LATE PAYER (21st - 25th) ---
             if (currentDay >= 21 && currentDay <= 25) {
-                
-                // Check if we already applied penalty/deduction for this specific month
                 if (acc.lastPenaltyMonth !== currentMonthStr) {
                     
-                    // 1. NEW: Apply Specific 1 Point Deduction Logic
-                    applySpecificPointDeduction(acc);
+                    // 1. Lost Point Logic (Deduct 1)
+                    if (acc.points.ontime > 0) acc.points.ontime--;
+                    else if (acc.points.advance > 0) acc.points.advance--;
+                    else acc.points.lost++; 
 
-                    // 2. Auto Add 10% Penalty to Balance
+                    // 2. Penalty: 10% of Plan
                     const penaltyAmt = acc.plan.fee * 0.10;
                     
                     if (!acc.charges) acc.charges = [];
                     acc.charges.push({
                         date: today.toISOString().slice(0, 10),
-                        note: "Late Penalty (21st-25th) - 1 Pt Deducted",
+                        note: "Late Fee (10%) + Point Deduction",
                         amount: penaltyAmt
                     });
 
-                    // Mark as processed for this month
                     acc.lastPenaltyMonth = currentMonthStr; 
-                    
                     dataChanged = true;
-                    pushNotification('warning', `Late Payment: 1 Point deducted & 10% Penalty added to ${acc.name}.`, 'viewAccount', acc.accountNumber);
+                    pushNotification('warning', `Late Penalty (10%) applied to ${acc.name}.`, 'viewAccount', acc.accountNumber);
                 }
             }
 
-            // --- RANGE: 26th to 30th (Termination/Freeze Phase) ---
+            // --- TERMINATED (26th+) ---
             if (currentDay >= 26) {
                 if (acc.status !== 'Terminated') {
                     acc.status = 'Terminated';
                     
+                    // 3. Termination Penalty: 30% of Plan (As requested)
+                    const termPenalty = acc.plan.fee * 0.30;
+
                     if (!acc.charges) acc.charges = [];
                     acc.charges.push({
                         date: today.toISOString().slice(0, 10),
-                        note: "Reconnection Fee (Auto-Cutoff)",
-                        amount: 150
+                        note: "Termination Penalty (30%)",
+                        amount: termPenalty
                     });
+                    
+                    // Optional: Add Reconnection fee separate or included? 
+                    // Leaving only the 30% per request, but you can add Reconnection fee here too.
 
                     dataChanged = true;
-                    pushNotification('alert', `Account Terminated: ${acc.name} (Unpaid by 26th).`, 'viewAccount', acc.accountNumber);
+                    pushNotification('alert', `Account Terminated: ${acc.name}. 30% Penalty Added.`, 'viewAccount', acc.accountNumber);
                 }
             }
         }
@@ -4402,10 +4401,10 @@ function checkDailySystemAutomations() {
 
     if (dataChanged) {
         saveAccounts();
-        showToast('System Update: Points Deducted & Penalties Applied.', 'warning');
-        renderAccounts(); // Refresh UI to show new point totals
+        renderAccounts(); 
     }
 }
+
 
 
 function init(){
@@ -4651,18 +4650,45 @@ document.getElementById('btnViewPendingClients').onclick = () => {
     renderPendingClients();
     modalPendingClientsBackdrop.style.display = 'flex';
 };
+// 1. Close Pending Clients Modal
 document.getElementById('closePendingClients').onclick = () => {
-// Admin: View/Close Upgrade Requests
+    modalPendingClientsBackdrop.style.display = 'none';
+};
+
+// 2. Open Upgrade Requests (Moved OUTSIDE the function above)
 document.getElementById('btnViewUpgradeRequests').onclick = () => {
-    
+    renderPendingUpgrades(); // Ensure list renders when opened
     modalUpgradeRequestsBackdrop.style.display = 'flex';
 };
+
+// 3. Close Upgrade Requests
 document.getElementById('closeUpgradeRequests').onclick = () => {
     modalUpgradeRequestsBackdrop.style.display = 'none';
 };
 
-    modalPendingClientsBackdrop.style.display = 'none';
-};
+// Helper to render upgrades (Ensure this exists)
+function renderPendingUpgrades() {
+    const tbody = document.getElementById('pendingUpgradesTbody');
+    tbody.innerHTML = '';
+    if(pendingUpgrades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center" class="muted">No pending requests.</td></tr>'; 
+        return;
+    }
+    pendingUpgrades.forEach((req, idx) => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+            <td>${req.accountNumber}</td>
+            <td>${req.name}</td>
+            <td>${req.currentPlanName}</td>
+            <td style="font-weight:700; color:var(--accent);">${req.requestedPlanName}</td>
+            <td>
+               <button class="small" onclick="approveUpgrade(${idx})">Approve</button>
+               <button class="small ghost" style="color:red; border-color:red" onclick="rejectUpgrade(${idx})">Reject</button>
+            </td>
+        `;
+        tbody.appendChild(tr);
+    });
+}
 
 function renderPendingClients() {
     pendingClientsTbody.innerHTML = '';
@@ -4670,9 +4696,25 @@ function renderPendingClients() {
         pendingClientsTbody.innerHTML = '<tr><td colspan="5" style="text-align: center;" class="muted">No pending applications.</td></tr>';
     }
     pendingClients.forEach((app, idx) => {
-        const [pname, pfee, pspeed] = app.plan.split('|');
+        // --- FIX START: Safety check for plan format ---
+        let pname, pfee, pspeed;
+        
+        if (typeof app.plan === 'string') {
+            // It's a string like "Basic|499|Speed"
+            [pname, pfee, pspeed] = app.plan.split('|');
+        } else if (typeof app.plan === 'object' && app.plan !== null) {
+            // It's already an object
+            pname = app.plan.name;
+            pfee = app.plan.fee;
+            pspeed = app.plan.speed;
+        } else {
+            // Fallback
+            pname = "Unknown"; pfee = 0; pspeed = "";
+        }
+        // --- FIX END ---
+
         const tr = document.createElement('tr');
-                tr.innerHTML = `
+        tr.innerHTML = `
             <td>
                 <div style="font-weight:700">${app.name}</div>
                 <div class="muted" style="font-size:11px;">Paid: ₱${app.totalInitialPay || 0}</div>
@@ -4885,21 +4927,18 @@ function renderClientPaymentHistory(account) {
 }
 
 document.getElementById('btnClientLogout').onclick = () => {
-    // Remove the client session key
+    activeClientAccount = null;
     localStorage.removeItem(CLIENT_LOGIN_KEY);
+    modalClientPortalBackdrop.style.display = 'none';
     
-    // Perform the clean redirect
-    performFullLogout();
-    
-    showToast("Client logged out successfully.", 'success');
-};
-
+    // Reset login modal to admin
+    isClientLoginMode = false;
     btnToggleLoginMode.textContent = 'Switch to Client Login';
     loginTitle.textContent = "N'RTECH Billing Portal Login";
     document.getElementById('forgotPasswordLink').style.display = 'inline-block';
     
     document.getElementById('loginModalBackdrop').style.display = 'flex';
-
+};
 
 // --- Client Payment (GCash) Modal Logic ---
 document.getElementById('btnClientPayNow').onclick = () => {
@@ -4909,7 +4948,9 @@ document.getElementById('btnClientPayNow').onclick = () => {
 document.getElementById('closeGcashPay').onclick = () => {
     modalGcashPaymentBackdrop.style.display = 'none';
 };
-// Client Portal: Request Upgrade
+
+
+// Client Portal: Request Upgrade Logic
 document.getElementById('btnClientRequestUpgrade').onclick = () => {
     if (!activeClientAccount) return;
 
@@ -4917,14 +4958,7 @@ document.getElementById('btnClientRequestUpgrade').onclick = () => {
     const selectedValue = select.value;
     const selectedText = select.options[select.selectedIndex].text;
 
-// Client Portal: Request Upgrade
-document.getElementById('btnClientRequestUpgrade').onclick = () => {
-    if (!activeClientAccount) return;
-
-    const select = document.getElementById('clientPlanUpgradeSelect');
-    const selectedValue = select.value;
-    const selectedText = select.options[select.selectedIndex].text;
-
+    // 1. Define the request object properly
     const request = {
         accountNumber: activeClientAccount.accountNumber,
         name: activeClientAccount.name,
@@ -4933,33 +4967,26 @@ document.getElementById('btnClientRequestUpgrade').onclick = () => {
         requestedPlanValue: selectedValue
     }; 
     
-    // FIX: The function call is now HERE, outside the object
+    // 2. Check if a request already exists using the 'request' object we just created
+    if (pendingUpgrades.some(r => r.accountNumber === request.accountNumber)) {
+        return showToast('You already have a pending upgrade request.', 'warning');
+    }
+
+    // 3. Add to list and save
+    pendingUpgrades.push(request);
+    savePendingUpgrades();
+
+    // 4. Notify Admin
     pushNotification('info', `Upgrade Request: ${activeClientAccount.name} wants ${selectedText}`, 'viewUpgrades');
 
-    // Check if a request already exists
-    if (pendingUpgrades.some(r => r.accountNumber === request.accountNumber)) {
-        return showToast('You already have a pending upgrade request.', 'warning');
-    }
-
-    pendingUpgrades.push(request);
-    savePendingUpgrades();
+    // 5. Update UI
     showToast('Upgrade request submitted for admin review!', 'success');
     document.getElementById('btnClientRequestUpgrade').disabled = true;
     document.getElementById('btnClientRequestUpgrade').textContent = 'Request Pending...';
 };
 
-    // Check if a request already exists
-    if (pendingUpgrades.some(r => r.accountNumber === request.accountNumber)) {
-        return showToast('You already have a pending upgrade request.', 'warning');
-    }
 
-    pendingUpgrades.push(request);
-    savePendingUpgrades();
-    showToast('Upgrade request submitted for admin review!', 'success');
-    document.getElementById('btnClientRequestUpgrade').disabled = true;
-    document.getElementById('btnClientRequestUpgrade').textContent = 'Request Pending...';
-};
-
+  
 document.getElementById('btnSubmitGcashProof').onclick = () => {
     const gcashRef = document.getElementById('clientGcashRef').value.trim();
     if (!activeClientAccount) {
@@ -5001,39 +5028,6 @@ function checkClientAutoLogin() {
 /* END: NEW JS FOR CLIENT PORTAL & REGISTRATION */
 /* =========================================== */
 
-/* --- CALCULATOR LOGIC --- */
-document.getElementById('navBtnCalculator').onclick = () => {
-    document.getElementById('modalCalculatorBackdrop').style.display = 'flex';
-    clearActiveNav();
-    document.getElementById('navBtnCalculator').classList.add('active');
-};
-document.getElementById('closeCalculator').onclick = () => {
-    document.getElementById('modalCalculatorBackdrop').style.display = 'none';
-    clearActiveNav();
-};
-
-let calcExpr = "";
-function calcAppend(val) {
-    calcExpr += val;
-    document.getElementById('calcDisplay').value = calcExpr;
-}
-function calcClear() {
-    calcExpr = "";
-    document.getElementById('calcDisplay').value = "";
-}
-function calcEqual() {
-    try {
-        // Basic safety replacement
-        const safeExpr = calcExpr.replace(/[^0-9+\-*/.]/g, "");
-        if(!safeExpr) return;
-        const result = eval(safeExpr); 
-        document.getElementById('calcDisplay').value = result;
-        calcExpr = String(result);
-    } catch (e) {
-        document.getElementById('calcDisplay').value = "Error";
-        calcExpr = "";
-    }
-}
 
 /* --- UPDATED EXTRA CHARGE LOGIC --- */
 document.getElementById('btnAddCharge').onclick = () => {
@@ -5492,38 +5486,6 @@ function applySpecificPointDeduction(acc) {
     }
 }
 
-/* =========================================
-   NEW: CENTRALIZED FULL LOGOUT FUNCTION
-   ========================================= */
-function performFullLogout() {
-    // 1. Set System State to Logged Out
-    setLoginState(false);
-    activeAccountIndex = null;
-    activeClientAccount = null;
-    
-    // 2. FORCE CLOSE ALL MODALS
-    // This loops through every single modal (Settings, Warning, Account, etc.) and hides them
-    const allModals = document.querySelectorAll('.modal-backdrop');
-    allModals.forEach(modal => {
-        modal.style.display = 'none';
-    });
-
-    // 3. Hide Notification Popup explicitly
-    document.getElementById('notificationPopup').style.display = 'none';
-
-    // 4. Clear sensitive fields
-    document.getElementById('loginPassword').value = '';
-    document.getElementById('loginUsername').value = '';
-
-    // 5. REDIRECT: Show the Login Portal
-    document.getElementById('loginModalBackdrop').style.display = 'flex';
-    
-    // 6. Reset Login Title to Default
-    isClientLoginMode = false;
-    document.getElementById('btnToggleLoginMode').textContent = 'Switch to Client Login';
-    document.querySelector('#loginModal h2').textContent = "N'RTECH Billing Portal Login";
-    document.getElementById('forgotPasswordLink').style.display = 'inline-block';
-}
 
 </script>
 </body>
