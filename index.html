@@ -4044,9 +4044,9 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 
 /* =========================================
-   UPDATED INVOICE GENERATOR (FIXED CALCULATIONS)
-   - Logic: Plan + Charges - Discounts = Subtotal
-   - Logic: Subtotal +/- Prev Balance = Grand Total
+   UPDATED INVOICE GENERATOR (ADVANCED)
+   - Shows "Sukli" (Excess) and "Kulang" (Previous Balance)
+   - Lists specific charges/discounts for the month
    ========================================= */
 function generateInvoiceHtml(acc, isReminder = false) {
     const today = new Date();
@@ -4058,9 +4058,9 @@ function generateInvoiceHtml(acc, isReminder = false) {
     let mainRef = isReminder ? "BILLING" : "RECEIPT";
     let mainDate = today.toLocaleDateString();
     
-    // Determine the "Billing Month" filter (YYYY-MM) to show relevant charges/discounts
-    // If it's a reminder, use current month. If receipt for past payment, ideally matches payment date, 
-    // but for simplicity, we use the current billing cycle month.
+    // FILTER MONTH: Determines which charges/discounts to show
+    // If Reminder: Show current month's charges.
+    // If Receipt: Show charges based on the last payment date.
     let filterMonth = new Date().toISOString().slice(0, 7); 
 
     const nextDueObj = new Date(acc.nextDue);
@@ -4082,21 +4082,21 @@ function generateInvoiceHtml(acc, isReminder = false) {
         filterMonth = lastPay.date.slice(0, 7);
 
         topSectionHtml = `
-            <div class="therm-row" style="font-weight:bold; font-size:13px; border-bottom: 1px solid #ddd; padding-bottom:5px; margin-bottom:5px;">
+            <div class="therm-row" style="font-weight:bold; font-size:14px; border-bottom: 2px solid #000; padding-bottom:5px; margin-bottom:5px;">
                 <span>AMOUNT PAID NOW</span>
                 <span>₱${lastPayAmount.toFixed(2)}</span>
             </div>
         `;
     }
 
-    // --- SECTION B: BILL CALCULATION ---
+    // --- SECTION B: BILL CALCULATION LOGIC ---
     let invoiceRows = ""; 
     
     // 1. BASE PLAN
     let currentMonthBill = acc.plan.fee;
     invoiceRows += `<div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${acc.plan.fee.toFixed(2)}</span></div>`;
 
-    // 2. ADD CHARGES (Only for this filter month)
+    // 2. ADD CHARGES (Specific to this month)
     if(acc.charges) {
         acc.charges.forEach(c => {
             if(c.date.startsWith(filterMonth)) {
@@ -4109,7 +4109,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
         });
     }
 
-    // 3. DEDUCT DISCOUNTS (Only for this filter month)
+    // 3. DEDUCT DISCOUNTS (Specific to this month)
     if(acc.discounts) {
         acc.discounts.forEach(d => {
             if(d.date.startsWith(filterMonth)) {
@@ -4125,56 +4125,42 @@ function generateInvoiceHtml(acc, isReminder = false) {
     // 4. SUBTOTAL LINE
     invoiceRows += `
     <div class="therm-row" style="border-top: 1px dashed #aaa; margin-top: 4px; padding-top: 4px; font-weight:bold;">
-        <span>SUBTOTAL (Current)</span>
+        <span>SUBTOTAL (This Month)</span>
         <span>₱${currentMonthBill.toFixed(2)}</span>
     </div>`;
 
-    // 5. PREVIOUS BALANCE / EXCESS CALCULATION
-    // The system "Wallet" (excessLackingBalance) holds the FINAL status.
-    // If Wallet is -1500 (Owes 1500) and Current Bill is 500:
-    // It means Previous Balance was 1000. 
-    // Calculation: Previous = (Inverse of Wallet) - Current Bill
+    // 5. "SUKLI" & "KULANG" CALCULATION
+    // Logic: Wallet (Excess/Lacking) is the Final Truth.
+    // If Wallet is Negative, they OWE money (Total Due).
+    // If Wallet is Positive, they HAVE money (Excess).
     
-    // Note: In this system, negative wallet = debt (Lacking). Positive = Credit (Excess).
-    // Total Amount Due = Current Bill + (Lacking) OR Current Bill - (Excess)
-    
-    // Let's rely on the wallet. 
-    // Total Due should theoretically match the wallet status (flipped to positive for "Due").
     let totalDue = 0;
     
-    // If Wallet is negative, they OWE money.
     if(acc.excessLackingBalance < 0) {
+        // Wallet is negative (e.g. -1500). Total Due is 1500.
         totalDue = Math.abs(acc.excessLackingBalance);
     } else {
-        // If Wallet is positive, they have CREDIT. Total Due is 0 (or negative technically).
+        // Wallet is positive. Total Due is 0 (Fully Paid).
         totalDue = 0; 
     }
 
-    // Calculate the "Previous Balance" portion by comparing Total Due vs Current Bill
+    // Previous Balance = Total Due - Current Subtotal
+    // Example: Total Due 1500. Current Bill 500. Prev Balance must be 1000.
     let previousBalance = totalDue - currentMonthBill;
 
     // RENDER PREVIOUS BALANCE ROW
-    if (previousBalance > 0) {
-        // Positive previous balance means Arrears/Lacking from before
-        invoiceRows += `<div class="therm-row" style="color:red; font-size:11px;">
-            <span>+ Previous Lacking</span>
+    if (previousBalance > 1) { // Tolerance for float errors
+        // "Kulang" (Arrears)
+        invoiceRows += `<div class="therm-row" style="color:red; font-size:11px; margin-top:5px;">
+            <span>+ PREV. BALANCE (Kulang)</span>
             <span>₱${previousBalance.toFixed(2)}</span>
         </div>`;
-    } else if (previousBalance < 0) {
-        // Negative previous balance means they had Excess/Advance
-        invoiceRows += `<div class="therm-row" style="color:green; font-size:11px;">
-            <span>- Less: Excess/Advance</span>
+    } else if (previousBalance < -1) {
+        // "Sukli" (Advance applied)
+        invoiceRows += `<div class="therm-row" style="color:green; font-size:11px; margin-top:5px;">
+            <span>- LESS: ADVANCE (Sukli)</span>
             <span>(₱${Math.abs(previousBalance).toFixed(2)})</span>
         </div>`;
-        
-        // Special Case: If their Excess is so big it covers the whole bill
-        // totalDue will be 0.
-    }
-
-    // --- VAT (Optional Display) ---
-    if (vatRate > 0) {
-        const vatAmount = currentMonthBill * (vatRate / 100);
-        invoiceRows += `<div class="therm-row" style="font-size:10px; color:#666;"><span>VAT Included (${vatRate}%)</span><span>₱${vatAmount.toFixed(2)}</span></div>`;
     }
 
     // --- PERMITS DISPLAY ---
@@ -4186,19 +4172,17 @@ function generateInvoiceHtml(acc, isReminder = false) {
     }
 
     // --- FINAL TOTAL DISPLAY ---
-    // If it's a Reminder, show TOTAL DUE. 
-    // If it's a Receipt, show TOTAL DUE (Account Balance) relative to what they just paid.
-    
-    let grandTotalLabel = isReminder ? "TOTAL AMOUNT DUE" : "TOTAL ACCOUNT DUE";
-    
-    // If they have excess money (Wallet > 0), show "WALLET BALANCE" instead of Due
+    let grandTotalLabel = isReminder ? "TOTAL AMOUNT DUE" : "REMAINING BALANCE";
     let grandTotalValue = totalDue;
     let grandTotalColor = "#000";
 
+    // If they have explicit Excess (Wallet > 0)
     if (acc.excessLackingBalance > 0) {
-        grandTotalLabel = "WALLET FUND (Advance)";
+        grandTotalLabel = "EXCESS FUND (Sukli)";
         grandTotalValue = acc.excessLackingBalance;
-        grandTotalColor = "green";
+        grandTotalColor = "green"; // Green for Sukli
+    } else if (acc.excessLackingBalance < 0) {
+        grandTotalColor = "red"; // Red for Kulang/Due
     }
 
     return `
@@ -4231,7 +4215,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
         </div>
         
         <div class="inv-subtotal-section">
-            <div class="therm-row" style="font-size: 16px; font-weight: 800; margin-top:5px; color:${grandTotalColor}">
+            <div class="therm-row" style="font-size: 16px; font-weight: 800; margin-top:5px; color:${grandTotalColor}; border-top: 2px solid #000; padding-top: 5px;">
                 <span>${grandTotalLabel}:</span>
                 <span>₱${grandTotalValue.toFixed(2)}</span>
             </div>
@@ -5539,7 +5523,7 @@ document.getElementById('dashBtnQuickPay').onclick = () => {
 document.getElementById('btnQuickPay').onclick = ()=>{
   const idx = Number(document.getElementById('quickAccount').value);
   const amt = Number(document.getElementById('quickAmount').value);
-  const date = document.getElementById('quickDate').value; // This now matches the selected month
+  const date = document.getElementById('quickDate').value; // crucial: matches selected month
 
   // Get Context Data
   const billMonthRaw = document.getElementById('quickBillingMonth').value; // "2023-10"
@@ -5568,7 +5552,7 @@ document.getElementById('btnQuickPay').onclick = ()=>{
 
   // Apply Payment
   applyPaymentToAccount(accounts[idx], {
-      date: date, // crucial: uses the date derived from the month picker
+      date: date, 
       amount: amt, 
       note: finalNote, 
       method: method, 
@@ -5582,6 +5566,7 @@ document.getElementById('btnQuickPay').onclick = ()=>{
   // Confirmation Toast
   showToast(`Paid ₱${amt} for ${formattedMonth}`, 'success');
 };
+
 
 </script>
 </body>
