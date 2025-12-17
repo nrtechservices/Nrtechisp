@@ -1330,59 +1330,84 @@
   </div>
 </div>
 <div class="modal-backdrop" id="modalQuickPayBackdrop">
-  <div class="modal" style="width: min(95%, 400px);">
+  <div class="modal" style="width: min(95%, 450px);">
     <div style="display:flex;justify-content:space-between;align-items:center">
-      <h3 style="color: var(--accent-2);">Quick Add Payment</h3>
+      <h3 style="color: var(--accent-2);">⚡ Quick Transaction</h3>
       <button id="closeQuickPay" class="no-print ghost small">Close</button>
     </div>
-    <div style="margin-top:8px">
-      <div class="muted" style="margin-bottom:8px">Add a payment quickly</div>
-      
-      <label class="muted">Account</label>
-<select id="quickAccount"></select>
+    
+    <div style="margin-top:12px">
+      <label class="muted">Select Account</label>
+      <select id="quickAccount" onchange="updateQuickPayUI()"></select>
 
-<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
-    <div>
-        <label class="muted">Billing Month</label>
-        <input id="quickBillingMonth" type="month" />
-    </div>
-    <div>
-        <label class="muted">Type/Status</label>
-        <select id="quickType">
-            <option value="Regular">Regular</option>
-            <option value="Advance">Advance</option>
-            <option value="On-Time">On-Time</option>
-            <option value="Penalty/Late">Penalty/Late</option>
-        </select>
-    </div>
-</div>
+      <hr style="margin:12px 0; border-color: var(--border);">
 
-<label style="margin-top:8px" class="muted">Amount</label>
-<input id="quickAmount" type="number" value="0" />
+      <label class="muted" style="color: var(--accent); font-weight:700;">Transaction Category</label>
+      <select id="quickCategory" onchange="updateQuickPayUI()">
+          <option value="bill">📅 Monthly Internet Payment</option>
+          <option value="advance">⏩ Advance Payment (Multi-Month)</option>
+          <option value="penalty">⚠️ Penalty (Percentage)</option>
+          <option value="reconnect">⚡ Reconnection Fee (Percentage)</option>
+          <option value="charge">➕ Extra Charge / Item</option>
+          <option value="discount">➖ Discount / Promo</option>
+      </select>
 
-<label style="margin-top:8px" class="muted">Payment Date</label>
-<input id="quickDate" type="date" />
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px;">
+        <div>
+            <label class="muted">Date of Transaction</label>
+            <input id="quickDate" type="date" />
+        </div>
+        <div>
+            <label class="muted">Apply to Month</label>
+            <input id="quickBillingMonth" type="month" />
+        </div>
+      </div>
 
+      <div id="qp-advance-box" style="display:none; background: #fdf8f0; padding:10px; border:1px solid #faeacc; border-radius:6px; margin-top:10px;">
+          <label class="muted">How many months to pay?</label>
+          <input type="number" id="quickAdvanceMonths" value="1" min="1" oninput="calculateQuickTotal()" />
+          <div class="muted" style="font-size:11px; margin-top:5px;">Covers: <span id="quickAdvanceCoverage" style="font-weight:700;">--</span></div>
+      </div>
 
-      <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 8px;">
-          <div>
-            <label class="muted">Method</label>
-            <select id="quickMethod" onchange="toggleQuickRef()">
-                <option value="Cash">Cash</option>
-                <option value="GCash">GCash</option>
-            </select>
-          </div>
-          <div>
-            <label class="muted">Reference #</label>
-            <input id="quickRef" placeholder="Optional for Cash" />
+      <div id="qp-percent-box" style="display:none; margin-top:10px;">
+          <label class="muted">Percentage Calculation (%)</label>
+          <div style="display:flex; gap:10px;">
+              <input type="number" id="quickPercent" value="10" placeholder="%" oninput="calculateQuickTotal()" style="width: 80px;" />
+              <div style="padding:10px; background:var(--bg); border:1px solid var(--border); border-radius:6px; flex-grow:1; font-size:12px; display:flex; align-items:center;">
+                  Base Plan: ₱<span id="quickBasePlan">0</span>
+              </div>
           </div>
       </div>
 
-      <div style="text-align:right;margin-top:16px"><button id="btnQuickPay">Add Payment</button></div>
+      <label style="margin-top:10px" class="muted">Description / Note</label>
+      <input id="quickNote" placeholder="e.g. October Bill, Modem Adaptor, Good Payer Promo" />
+
+      <div style="background: var(--panel-2); padding: 10px; border-radius: 8px; margin-top: 15px;">
+          <label class="muted">Total Amount (₱)</label>
+          <input id="quickAmount" type="number" style="font-size: 18px; font-weight: 700; color: var(--accent-2);" />
+          
+          <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 10px;">
+              <div>
+                <label class="muted" style="font-size:11px">Method</label>
+                <select id="quickMethod" onchange="toggleQuickRef()">
+                    <option value="Cash">Cash</option>
+                    <option value="GCash">GCash</option>
+                </select>
+              </div>
+              <div>
+                <label class="muted" style="font-size:11px">Ref #</label>
+                <input id="quickRef" placeholder="Optional" />
+              </div>
+          </div>
+      </div>
+
+      <div style="text-align:right;margin-top:16px">
+          <button id="btnQuickPay" style="width:100%; padding: 12px;">✅ Process Transaction</button>
+      </div>
     </div>
   </div>
-  </div>
 </div>
+
 <div class="modal-backdrop" id="modalPayBackdrop">
   <div class="modal" style="width: min(95%, 400px);">
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -3329,55 +3354,173 @@ function importCSVProcess(csvText) {
 
 
 /* =========================
-   QUICK PAYMENT MODAL LOGIC
+   NEW QUICK PAY LOGIC
    ========================= */
-document.getElementById('quickAccount').onchange = ()=>{
-  const idx = Number(document.getElementById('quickAccount').value);
-  if(!Number.isNaN(idx) && accounts[idx]) {
-    document.getElementById('quickAmount').value = accounts[idx].plan.fee;
-  }
-};
 
+// 1. UI Updater: Handles showing/hiding fields based on Category
+function updateQuickPayUI() {
+    const idx = Number(document.getElementById('quickAccount').value);
+    const category = document.getElementById('quickCategory').value;
+    
+    // Safety check
+    if(Number.isNaN(idx) || !accounts[idx]) return;
+    const acc = accounts[idx];
+    const planFee = acc.plan.fee;
+
+    // Show Base Plan for reference
+    document.getElementById('quickBasePlan').textContent = planFee;
+
+    // Element References
+    const advanceBox = document.getElementById('qp-advance-box');
+    const percentBox = document.getElementById('qp-percent-box');
+    const noteInput = document.getElementById('quickNote');
+    
+    // Reset Display
+    advanceBox.style.display = 'none';
+    percentBox.style.display = 'none';
+    
+    // Logic Switch
+    if (category === 'bill') {
+        noteInput.value = `Monthly Bill Payment`;
+        calculateQuickTotal(); 
+    } 
+    else if (category === 'advance') {
+        advanceBox.style.display = 'block';
+        noteInput.value = `Advance Payment`;
+        calculateQuickTotal();
+    } 
+    else if (category === 'penalty') {
+        percentBox.style.display = 'block';
+        document.getElementById('quickPercent').value = 10; // Default 10%
+        noteInput.value = `Late Payment Penalty (10%)`;
+        calculateQuickTotal();
+    }
+    else if (category === 'reconnect') {
+        percentBox.style.display = 'block';
+        document.getElementById('quickPercent').value = 25; // Default example %
+        noteInput.value = `Reconnection Fee`;
+        calculateQuickTotal();
+    }
+    else if (category === 'charge') {
+        noteInput.value = '';
+        noteInput.placeholder = "e.g. Broken Modem Replacement";
+        document.getElementById('quickAmount').value = ''; // Manual entry
+    }
+    else if (category === 'discount') {
+        noteInput.value = '';
+        noteInput.placeholder = "e.g. Loyalty Discount";
+        document.getElementById('quickAmount').value = ''; // Manual entry
+    }
+}
+
+// 2. Calculator: Updates the Amount field automatically
+function calculateQuickTotal() {
+    const idx = Number(document.getElementById('quickAccount').value);
+    if(Number.isNaN(idx) || !accounts[idx]) return;
+    
+    const acc = accounts[idx];
+    const category = document.getElementById('quickCategory').value;
+    const fee = acc.plan.fee;
+    const amountInput = document.getElementById('quickAmount');
+
+    if (category === 'bill') {
+        amountInput.value = fee;
+    }
+    else if (category === 'advance') {
+        const months = Number(document.getElementById('quickAdvanceMonths').value) || 1;
+        amountInput.value = fee * months;
+        
+        // Calculate coverage text
+        const startMonthStr = document.getElementById('quickBillingMonth').value; // YYYY-MM
+        if(startMonthStr) {
+            let dateCursor = new Date(startMonthStr + "-01");
+            let coverStr = [];
+            for(let i=0; i<months; i++) {
+                coverStr.push(dateCursor.toLocaleString('default', { month: 'short' }));
+                dateCursor.setMonth(dateCursor.getMonth() + 1);
+            }
+            document.getElementById('quickAdvanceCoverage').textContent = coverStr.join(", ");
+            // Update note automatically
+            document.getElementById('quickNote').value = `Advance: ${coverStr.join(", ")}`;
+        }
+    }
+    else if (category === 'penalty' || category === 'reconnect') {
+        const percent = Number(document.getElementById('quickPercent').value) || 0;
+        const calc = fee * (percent / 100);
+        amountInput.value = calc.toFixed(2); // Round to 2 decimals
+    }
+}
+
+// 3. Process Button Logic
 document.getElementById('btnQuickPay').onclick = () => {
-  const idx = Number(document.getElementById('quickAccount').value);
-  const amt = Number(document.getElementById('quickAmount').value);
-  const date = document.getElementById('quickDate').value;
-  const billMonthRaw = document.getElementById('quickBillingMonth').value; // YYYY-MM
-  const typeStatus = document.getElementById('quickType').value;
-  const method = document.getElementById('quickMethod').value;
-  const ref = document.getElementById('quickRef').value.trim();
+    const idx = Number(document.getElementById('quickAccount').value);
+    const category = document.getElementById('quickCategory').value;
+    const amount = Number(document.getElementById('quickAmount').value);
+    const date = document.getElementById('quickDate').value;
+    const note = document.getElementById('quickNote').value;
+    const method = document.getElementById('quickMethod').value;
+    const ref = document.getElementById('quickRef').value;
+    const billingMonth = document.getElementById('quickBillingMonth').value; // YYYY-MM context
 
-  if(Number.isNaN(idx) || !accounts[idx] || !date || amt<=0) {
-      return showToast('Choose account, date, and amount', 'error');
-  }
+    if(Number.isNaN(idx) || !accounts[idx] || !date || amount <= 0) {
+        return showToast('Please check fields: Account, Date, and Amount are required.', 'error');
+    }
 
-  // Format Month for Display
-  let formattedMonth = "N/A";
-  if(billMonthRaw) {
-      const [y, m] = billMonthRaw.split('-');
-      const dateObj = new Date(y, m - 1);
-      formattedMonth = dateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
-  }
+    const acc = accounts[idx];
+    const refNum = ref || generateRefNumber(acc.accountNumber, date);
 
-  const note = `Bill: ${formattedMonth} (${typeStatus})`;
+    // -- PROCESS BASED ON CATEGORY --
 
-  applyPaymentToAccount(accounts[idx], {
-      date: date, 
-      amount: amt, 
-      note: note, 
-      method: method,
-      billingMonth: formattedMonth, // Storing specific month
-      paymentStatus: typeStatus,    // Storing specific status (Advance/Penalty)
-      referenceNumber: ref || generateRefNumber(accounts[idx].accountNumber, date)
-  });
+    if (category === 'charge' || category === 'reconnect' || category === 'penalty') {
+        // These are effectively CHARGES (Add to debt)
+        if(!acc.charges) acc.charges = [];
+        acc.charges.push({
+            date: date, // Specific date
+            note: note, // Specific note
+            amount: amount,
+            category: category // store internal type
+        });
+        showToast(`${category.toUpperCase()} added successfully.`, 'warning');
+    } 
+    else if (category === 'discount') {
+        // This is a DISCOUNT (Reduces debt)
+        if(!acc.discounts) acc.discounts = [];
+        acc.discounts.push({
+            date: date,
+            note: note,
+            amount: amount,
+            ref: refNum
+        });
+        showToast('Discount applied.', 'success');
+    }
+    else {
+        // Bill or Advance (Standard PAYMENTS)
+        // If it's advance, we use the pre-calculated note from UI
+        applyPaymentToAccount(acc, {
+            date: date,
+            amount: amount,
+            note: note,
+            method: method,
+            referenceNumber: refNum,
+            billingMonth: billingMonth, // Helps invoice transparency
+            type: category
+        });
+        showToast('Payment recorded successfully.', 'success');
+    }
 
-  saveAccounts(); 
-  renderAccounts(); 
-  modalQuickPayBackdrop.style.display='none'; 
-  showToast('Quick Payment added.', 'success');
-  document.getElementById('quickRef').value = "";
+    saveAccounts();
+    renderAccounts();
+    document.getElementById('modalQuickPayBackdrop').style.display = 'none';
+    
+    // Clear inputs
+    document.getElementById('quickRef').value = '';
+    document.getElementById('quickNote').value = '';
 };
 
+// Initial Call to set defaults
+document.getElementById('quickAccount').onchange = updateQuickPayUI;
+document.getElementById('quickCategory').onchange = updateQuickPayUI;
+document.getElementById('quickBillingMonth').onchange = calculateQuickTotal;
 
 
 /* =========================
@@ -3749,43 +3892,48 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 // --- REPLACE YOUR generateInvoiceHtml FUNCTION ---
 
-// --- REPLACE YOUR OLD generateInvoiceHtml WITH THIS NEW VERSION ---
-
+/* =========================
+   UPDATED INVOICE GENERATOR
+   ========================= */
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
-    // Determine which payment to show
+    
+    // 1. Determine Payment to show
     let targetPayment = null;
     if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
         targetPayment = acc.payments[specificPaymentIndex];
     } else if (!isReminder && acc.payments.length > 0) {
-        targetPayment = acc.payments[acc.payments.length - 1]; // Default to last
+        targetPayment = acc.payments[acc.payments.length - 1]; 
     }
 
     const today = new Date();
     const planFee = acc.plan.fee;
     
-    // CONTEXT DATES
-    // If viewing a specific payment, look for charges in THAT month.
-    // If reminder, look for charges in the UPCOMING month/Current month.
-    let contextDateStr = isReminder ? new Date(acc.nextDue).toISOString().slice(0, 7) : (targetPayment ? targetPayment.date.slice(0, 7) : today.toISOString().slice(0, 7));
+    // 2. TRANSPARENCY CONTEXT DATE
+    // If it's a specific payment, use that payment's date (YYYY-MM)
+    // If it's a reminder, use the Next Due date (YYYY-MM)
+    let contextDateStr = isReminder 
+        ? new Date(acc.nextDue).toISOString().slice(0, 7) 
+        : (targetPayment ? targetPayment.date.slice(0, 7) : today.toISOString().slice(0, 7));
 
-    // 1. SETUP HEADER DATA
     const displayDate = targetPayment ? new Date(targetPayment.date).toLocaleDateString() : today.toLocaleDateString();
     const refNum = targetPayment ? (targetPayment.referenceNumber || "REF") : "BILLING";
-    const payMethod = targetPayment ? (targetPayment.method || "Cash") : "Pending";
-    const billingMonthDisplay = targetPayment ? (targetPayment.billingMonth || "General Payment") : new Date(acc.nextDue).toLocaleString('default', { month: 'long', year: 'numeric' });
+    
+    // 3. POINTS CALCULATION (Total Points)
+    // Requirement: Show points on invoice
+    const totalPoints = (acc.points.advance || 0) + (acc.points.ontime || 0) - (acc.points.lost || 0);
 
-    // 2. GATHER CHARGES & DISCOUNTS (Feature 5)
-    // We filter charges that match the 'contextDateStr' (YYYY-MM)
+    // 4. GATHER TRANSPARENT ITEMS (Charges/Discounts for THIS specific month)
     let extraItemsHtml = '';
     let totalExtras = 0;
 
+    // Filter Charges
     if(acc.charges) {
         acc.charges.forEach(c => {
-            // Show if dates match OR if it's a reminder and we assume unpaid charges are relevant
-            if(c.date.startsWith(contextDateStr) || (isReminder && acc.excessLackingBalance < 0)) {
+            // Check if charge date matches the invoice context month
+            if(c.date.startsWith(contextDateStr)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-error);">
-                    <span>[+] ${c.note || 'Charge'}</span>
+                    <span>[+] ${c.note || 'Extra Charge'}</span>
                     <span>₱${Number(c.amount).toFixed(2)}</span>
                 </div>`;
                 totalExtras += Number(c.amount);
@@ -3793,6 +3941,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         });
     }
 
+    // Filter Discounts
     if(acc.discounts) {
         acc.discounts.forEach(d => {
             if(d.date.startsWith(contextDateStr)) {
@@ -3806,57 +3955,38 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         });
     }
 
-    // 3. CALCULATION LOGIC (Feature 1: Auto Deduct)
+    // 5. CALCULATE TOTALS
     let amountDisplay = 0;
     let balanceRowHtml = '';
-    let grandTotal = 0;
-
+    
     if(isReminder) {
-        // REMINDER LOGIC
-        const currentBalance = acc.excessLackingBalance; // Negative means debt, Positive means advance
+        // For Reminder: Plan Fee + Extras +/- Previous Balance
+        const currentBalance = acc.excessLackingBalance; 
         const nextBillAmount = planFee + totalExtras;
-        
-        // Show the current Plan Fee
-        grandTotal = nextBillAmount;
+        let grandTotal = nextBillAmount;
 
-        // Apply Balance (Auto Deduct or Add Arrears)
         if(currentBalance > 0) {
-            // User has excess credit
-            balanceRowHtml = `
-            <div class="therm-row" style="color:var(--toast-success);">
-                <span>Less: Wallet Balance</span>
-                <span>-₱${currentBalance.toFixed(2)}</span>
-            </div>`;
+            balanceRowHtml = `<div class="therm-row" style="color:var(--toast-success);"><span>Less: Wallet Balance</span><span>-₱${currentBalance.toFixed(2)}</span></div>`;
             grandTotal = Math.max(0, nextBillAmount - currentBalance);
         } else if (currentBalance < 0) {
-            // User has past due
-            balanceRowHtml = `
-            <div class="therm-row" style="color:var(--toast-error);">
-                <span>Plus: Unpaid Balance</span>
-                <span>₱${Math.abs(currentBalance).toFixed(2)}</span>
-            </div>`;
+            balanceRowHtml = `<div class="therm-row" style="color:var(--toast-error);"><span>Plus: Unpaid Balance</span><span>₱${Math.abs(currentBalance).toFixed(2)}</span></div>`;
             grandTotal = nextBillAmount + Math.abs(currentBalance);
         }
-        
         amountDisplay = grandTotal;
     } else {
-        // RECEIPT LOGIC (Specific Payment)
+        // For Receipt: Just the amount paid
         amountDisplay = Number(targetPayment.amount);
     }
 
-    // 4. SETTINGS INJECTION (Feature 3)
-    const permitHtml = invSettings.permit ? `<div>Permit: ${invSettings.permit}</div>` : '';
-    const tinHtml = invSettings.tin ? `<div>TIN: ${invSettings.tin}</div>` : '';
+    // 6. SETTINGS
     const footerMsg = invSettings.footer || (isReminder ? "Please pay before due date." : "Thank you for your payment!");
 
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
-            <img src="inv.png" class="therm-logo" alt="Logo"><br>
-            <div class="therm-title">N'RTECH INTERNET</div>
+            <img src="logo.png" class="therm-logo" alt="Logo"><br> <div class="therm-title">N'RTECH INTERNET</div>
             <div>San Vicente, Tubod, LDN</div>
             <div>0946-895-3577</div>
-            ${permitHtml} ${tinHtml}
         </div>
 
         <div class="therm-info">
@@ -3866,9 +3996,13 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
         </div>
+        
+        <div class="therm-points-box">
+            <b>Loyalty Points: ${totalPoints}</b>
+        </div>
 
         <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">
-            ${isReminder ? `BILLING: ${billingMonthDisplay}` : 'OFFICIAL RECEIPT'}
+            ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
         </div>
 
         <div class="therm-row">
@@ -3887,14 +4021,13 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         <div class="therm-divider"></div>
 
         <div class="therm-row" style="font-size: 16px; font-weight: 800;">
-            <span>${isReminder ? 'TOTAL AMOUNT DUE' : 'AMOUNT PAID'}:</span>
+            <span>${isReminder ? 'TOTAL DUE' : 'AMOUNT PAID'}:</span>
             <span>₱${amountDisplay.toFixed(2)}</span>
         </div>
 
         ${!isReminder ? `
         <div style="margin-top:5px; font-size:11px; text-align:center;">
-            Payment for: <b>${billingMonthDisplay}</b><br>
-            Method: ${payMethod} | Status: ${targetPayment.paymentStatus || 'Regular'}
+            Note: ${targetPayment.note || 'Payment Received'}
         </div>` : ''}
 
         <div class="therm-footer">
@@ -3904,7 +4037,6 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     </div>
     `;
 }
-
 
 
 
