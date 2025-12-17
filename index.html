@@ -3051,20 +3051,63 @@ document.getElementById('closeDashboard').onclick = () => {
     modalDashboardBackdrop.style.display = 'none';
     clearActiveNav();
 };
+// --- Updated Quick Pay Button ---
 document.getElementById('dashBtnQuickPay').onclick = () => {
     modalDashboardBackdrop.style.display = 'none';
     const today = new Date();
     document.getElementById('quickDate').value = today.toISOString().slice(0,10);
-    // Default billing month to current month
     
-    document.getElementById('quickBillingMonth').value = today.toISOString().slice(0,7); 
-
+    // --- CHANGE: AUTO-SELECT NEXT UNPAID MONTH ---
+    let defaultMonth = today.toISOString().slice(0,7);
+    
+    // If accounts exist, default to first one and check their bill
     if(accounts.length > 0) {
-       const defaultIdx = Number(document.getElementById('quickAccount').value) || 0;
-       document.getElementById('quickAmount').value = accounts[defaultIdx]?.plan.fee || 0;
+       document.getElementById('quickAccount').value = "0"; // Default first account
+       document.getElementById('quickAmount').value = accounts[0]?.plan.fee || 0;
+       
+       // Detect specific month for first account
+       if(accounts[0]) {
+           defaultMonth = getNextBillableMonth(accounts[0]);
+       }
     }
+    
+    document.getElementById('quickBillingMonth').value = defaultMonth; 
+    // ----------------------------------------------
+    
     modalQuickPayBackdrop.style.display='flex';
 };
+
+// --- Updated Specific Account Pay Button ---
+document.getElementById('btnAddPayment').onclick = ()=>{
+  const a = accounts[activeAccountIndex];
+  document.getElementById('payAccName').textContent = `${a.accountNumber} — ${a.name}`;
+  document.getElementById('payAmount').value = a.plan.fee;
+  
+  const today = new Date();
+  document.getElementById('payDate').valueAsDate = today;
+  
+  // --- CHANGE: AUTO-SELECT NEXT UNPAID MONTH ---
+  const nextMonth = getNextBillableMonth(a);
+  document.getElementById('payBillingMonthHelper').value = nextMonth;
+  // ----------------------------------------------
+
+  document.getElementById('payNote').value = '';
+  modalPayBackdrop.style.display='flex';
+};
+
+// --- Also update the Quick Account Selector Change Event ---
+document.getElementById('quickAccount').onchange = ()=>{
+  const idx = Number(document.getElementById('quickAccount').value);
+  if(!Number.isNaN(idx) && accounts[idx]) {
+    document.getElementById('quickAmount').value = accounts[idx].plan.fee;
+    
+    // Update Month Logic when changing dropdown
+    document.getElementById('quickBillingMonth').value = getNextBillableMonth(accounts[idx]);
+  }
+};
+
+    modalQuickPayBackdrop.style.display='flex';
+
 
 document.getElementById('dashBtnLiquidation').onclick = () => {
     modalDashboardBackdrop.style.display = 'none';
@@ -3122,29 +3165,41 @@ function openAccount(idx){
   document.getElementById('accPPPass').style.filter = 'blur(6px)';
   document.getElementById('togglePass').textContent = 'Show';
 
-
   document.getElementById('accAdvancePoints').textContent = a.points.advance;
   document.getElementById('accOnTimePoints').textContent = a.points.ontime;
   document.getElementById('accLostPoints').textContent = a.points.lost;
   document.getElementById('accNextDue').textContent = new Date(a.nextDue).toLocaleDateString();
 
+  // --- CHANGED: LOGIC FOR ZERO BALANCE DISPLAY ---
   const balanceEl = document.getElementById('accBalanceAmount');
-  balanceEl.textContent = `₱${a.excessLackingBalance.toFixed(2)}`;
-  balanceEl.style.color = a.excessLackingBalance >= 0 ? 'var(--accent-2)' : 'red';
-  balanceEl.style.textShadow = a.excessLackingBalance >= 0 ? 'var(--glow)' : '0 0 3px rgba(255, 0, 0, 0.3)';
+  const rawBalance = a.excessLackingBalance;
 
-    /* =========================================
-   STEP 2: NEW TRACKING SYSTEM UI (Copy inside openAccount function)
-   ========================================= */
-   
+  if (rawBalance < 0) {
+      // If negative (Debt), show 0.00 as "Balance/Excess"
+      balanceEl.textContent = `₱0.00`; 
+      balanceEl.style.color = 'var(--text)';
+      balanceEl.style.textShadow = 'none';
+      
+      // Optionally append the Due Amount text next to it or rely on the "Next Due" field logic
+      // For this UI, we make it clear they have NO excess.
+      balanceEl.innerHTML = `₱0.00 <span style='color:red; font-size:11px; display:block;'>(Due: ₱${Math.abs(rawBalance).toFixed(2)})</span>`;
+  } else {
+      // If positive (Excess), show the amount
+      balanceEl.textContent = `₱${rawBalance.toFixed(2)}`;
+      balanceEl.style.color = 'var(--accent-2)';
+      balanceEl.style.textShadow = 'var(--glow)';
+  }
+  // ----------------------------------------------
+
+  // ... (Keep the rest of the function: Transaction Table Logic) ...
+  // [Copy the rest of your existing openAccount function logic regarding paymentsTbody here]
+  
   // --- START NEW TRANSACTION TABLE LOGIC (FIXED) ---
   const paymentsTbody = document.getElementById('paymentsTbody');
   paymentsTbody.innerHTML = '';
 
-  // 1. Create a merged list of all transactions (Payments + Charges + Discounts)
   let allTransactions = [];
 
-  // FIX: Changed 'acc' to 'a' here
   if(a.payments){
       a.payments.forEach((p, i) => {
           allTransactions.push({ 
@@ -3159,7 +3214,6 @@ function openAccount(idx){
       });
   }
 
-  // FIX: Changed 'acc' to 'a' here
   if(a.charges) {
       a.charges.forEach((c, i) => {
           allTransactions.push({ 
@@ -3173,7 +3227,6 @@ function openAccount(idx){
       });
   }
 
-  // FIX: Changed 'acc' to 'a' here
   if(a.discounts) {
       a.discounts.forEach((d, i) => {
           allTransactions.push({ 
@@ -3187,25 +3240,20 @@ function openAccount(idx){
       });
   }
 
-  // 2. Sort by Date (Newest first)
   allTransactions.sort((x, y) => new Date(y.date) - new Date(x.date));
 
-  // 3. Render the Unified Table
   allTransactions.forEach((t) => {
       const tr = document.createElement('tr');
-      
       let amountDisplay = '';
       let typeLabel = '';
       let colorStyle = '';
-      let statusTag = ''; // NEW: Holds Advance/Ontime text
+      let statusTag = ''; 
 
-      // Determine Styles based on Type
       if(t.type === 'payment') {
           typeLabel = '<span class="badge" style="background:var(--accent);">PAYMENT</span>';
           amountDisplay = `₱${Number(t.amount).toFixed(2)}`;
           colorStyle = 'font-weight:bold; color: var(--text);';
 
-          // --- NEW: Calculate Payment Timing Status ---
           const pDate = new Date(t.date);
           const day = pDate.getDate();
           
@@ -3250,25 +3298,19 @@ function openAccount(idx){
       paymentsTbody.appendChild(tr);
   });
 
-
-
-
-  // init calendar to this month
   const now = new Date();
   calMonth = now.getMonth(); calYear = now.getFullYear();
   renderCalendar();
 
-  // Set view to default (not edit)
   document.getElementById('accEdit').style.display='none';
   document.getElementById('accView').style.display='block';
   
-  // --- NEW: Populate edit form client fields ---
   document.getElementById('editClientUsername').value = a.clientUsername || '';
   document.getElementById('editClientPassword').value = a.clientPassword || '';
-  // --- END NEW ---
 
   modalAccountBackdrop.style.display = 'flex';
 }
+
 
 document.getElementById('togglePass').onclick = ()=>{
   const el = document.getElementById('accPPPass');
@@ -4122,24 +4164,46 @@ function generateInvoiceHtml(acc, isReminder = false) {
     const vatRate = invoiceSettings.vatRate || 0; 
     const permits = invoiceSettings.permits || [];
 
-    // 1. Setup Header Details
+    // --- CHANGED: DETERMINE SPECIFIC MONTH ---
+    // Default to the calculated "Next Unpaid Month"
+    let targetMonthStr = getNextBillableMonth(acc); 
+    
+    // If we are looking at a Receipt (Not Reminder) and have a payment
+    let lastPayAmount = 0;
+    if (!isReminder && acc.payments.length > 0) {
+        const lastPay = acc.payments[acc.payments.length - 1];
+        lastPayAmount = Number(lastPay.amount);
+        
+        // If the payment has a stored billing month (e.g., "October 2023"), use it.
+        // Otherwise, fallback to the date of the payment.
+        if (lastPay.billingMonth && lastPay.billingMonth !== "N/A") {
+            // We need to convert "October 2023" back to "2023-10" for filtering logic if needed, 
+            // OR just use it for display. 
+            // For filterMonth (calculation), we stick to payment date to find charges.
+            // For Display, we use the specific month.
+            targetMonthStr = new Date(lastPay.date).toISOString().slice(0, 7); 
+        } else {
+            targetMonthStr = lastPay.date.slice(0, 7);
+        }
+    }
+    
+    // Convert targetMonthStr (YYYY-MM) to Readable (Month YYYY)
+    const [tYear, tMonth] = targetMonthStr.split('-');
+    const tDateObj = new Date(tYear, tMonth - 1, 1);
+    const displayBillingMonth = tDateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
+
+    // Determine Filter for Charges (Receipt = Payment Date, Reminder = Next Due Date)
+    let filterMonth = isReminder ? getNextBillableMonth(acc) : targetMonthStr;
+    // ------------------------------------------
+
     let mainRef = isReminder ? "BILLING" : "RECEIPT";
     let mainDate = today.toLocaleDateString();
-    
-    // FILTER MONTH: 
-    // If Reminder: Show current month's charges (We want to bill them for NOW).
-    // If Receipt: Show charges based on the last payment date (What they just paid for).
-    let filterMonth = new Date().toISOString().slice(0, 7); 
-
-    let lastPayAmount = 0;
     let topSectionHtml = "";
     
     if (!isReminder && acc.payments.length > 0) {
         const lastPay = acc.payments[acc.payments.length - 1];
         mainDate = new Date(lastPay.date).toLocaleDateString();
         mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH-REF" : "CASH");
-        lastPayAmount = Number(lastPay.amount);
-        filterMonth = lastPay.date.slice(0, 7); // Lock charges to the payment month
 
         topSectionHtml = `
             <div class="therm-row" style="font-weight:bold; font-size:14px; border-bottom: 2px solid #000; padding-bottom:5px; margin-bottom:5px;">
@@ -4190,47 +4254,26 @@ function generateInvoiceHtml(acc, isReminder = false) {
         <span>₱${currentMonthSubtotal.toFixed(2)}</span>
     </div>`;
 
-
     // --- SECTION C: SUKLI (EXCESS) & KULANG (LACKING) LOGIC ---
-    
-    // We calculate the Total Due based on the account's running balance.
-    // Since excessLackingBalance is (Cash In - Obligation), 
-    // A Negative Balance means they OWE money.
-    // A Positive Balance means they have Excess.
-    
     let totalAmountDue = 0;
     
-    // Since recomputePointsAndBalance includes "This Month" in the calculation:
+    // Recalculate pure debt for invoice purposes
+    // If excessLackingBalance is negative, that is the debt.
     if (acc.excessLackingBalance < 0) {
-        // Example: -600 balance means they owe 600 total.
         totalAmountDue = Math.abs(acc.excessLackingBalance);
-    } else {
-        // Example: +100 balance means they have 100 excess. They owe nothing right now.
-        // However, for the Invoice, usually we show the Bill, less the advance.
-        // If they have 100 excess, and bill is 500, the System Balance would be -400 (Owe 400).
-        // If the balance is strictly Positive, it means they paid MORE than the bill already.
-        totalAmountDue = 0; 
-    }
+    } 
 
-    // Calculate Previous Balance Difference
-    // PrevBalance = (The Total Amount they Owe) - (This Month's Bill)
     let previousBalance = totalAmountDue - currentMonthSubtotal;
 
-    // SCENARIO 1: SUKLI (Excess)
-    // If Total Due (400) - Current Bill (500) = -100. 
-    // This means 100 was deducted from previous excess.
-    if (previousBalance < -1) { // Tolerance for rounding
+    if (previousBalance < -1) { 
         invoiceRows += `<div class="therm-row" style="color:green; font-size:11px; margin-top:5px;">
             <span>- LESS: ADVANCE (Sukli)</span>
             <span>(₱${Math.abs(previousBalance).toFixed(2)})</span>
         </div>`;
     } 
-    // SCENARIO 2: KULANG (Lacking)
-    // If Total Due (600) - Current Bill (500) = +100.
-    // This means 100 is added from previous unpaid bills.
     else if (previousBalance > 1) { 
         invoiceRows += `<div class="therm-row" style="color:red; font-size:11px; margin-top:5px;">
-            <span>+ PREV. BALANCE (Kulang)</span>
+            <span>+ UNPAID PREV. BILL (Kulang)</span>
             <span>₱${previousBalance.toFixed(2)}</span>
         </div>`;
     }
@@ -4241,10 +4284,6 @@ function generateInvoiceHtml(acc, isReminder = false) {
     let grandTotalValue = totalAmountDue;
     let grandTotalColor = "#000";
 
-    // Special Case: If they actually have pure Excess (Paid 600 for 500 bill -> Balance +100)
-    // In this case, recomputePointsAndBalance makes balance +100.
-    // The Invoice logic above sets totalAmountDue to 0.
-    // We want to show "Excess Fund: 100".
     if (acc.excessLackingBalance > 0) {
         grandTotalLabel = "EXCESS FUND (Sukli)";
         grandTotalValue = acc.excessLackingBalance;
@@ -4259,8 +4298,11 @@ function generateInvoiceHtml(acc, isReminder = false) {
         permitHtml += `</div>`;
     }
 
-    const nextBillMonth = new Date(today.getFullYear(), today.getMonth() + 1, FIXED_BILLING_DAY);
-    const nextBillString = nextBillMonth.toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'});
+    // Next due date logic
+    let nextBillDateObj = new Date(filterMonth + '-01');
+    nextBillDateObj.setMonth(nextBillDateObj.getMonth() + 1);
+    nextBillDateObj.setDate(FIXED_BILLING_DAY);
+    const nextBillString = nextBillDateObj.toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'});
 
     return `
     <div id="invoiceCapture" class="invoice-thermal">
@@ -4284,8 +4326,9 @@ function generateInvoiceHtml(acc, isReminder = false) {
         <div style="font-weight:bold; text-align:center; margin: 5px 0;">
             ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
         </div>
-        <div style="text-align:center; font-size:10px; margin-bottom:10px;">
-            Billing Month: ${filterMonth}
+        
+        <div style="text-align:center; font-size:12px; margin-bottom:10px; font-weight:bold; color:var(--accent-2);">
+            FOR: ${displayBillingMonth.toUpperCase()}
         </div>
 
         ${topSectionHtml}
@@ -4321,11 +4364,6 @@ function generateInvoiceHtml(acc, isReminder = false) {
     </div>
     `;
 }
-
-
-
-
-
 
 /* =========================
    UPDATED: THERMAL PRINT FUNCTION
@@ -5717,6 +5755,43 @@ function setPaymentDate(mode, type) {
     document.getElementById(dateInputId).value = finalDate;
     
     showToast(`Date set to ${type.toUpperCase()} (${finalDate})`, 'info');
+}
+
+// --- NEW HELPER: Calculate the next specific month to pay ---
+function getNextBillableMonth(acc) {
+    // 1. Calculate Total Obligations vs Total Paid
+    let totalPaid = acc.payments.reduce((sum, p) => sum + Number(p.amount), 0);
+    
+    // 2. Start from account creation
+    let cursor = new Date(acc.createdAt);
+    cursor.setDate(FIXED_BILLING_DAY); // Align to billing day
+    
+    const today = new Date();
+    // Safety break: don't calculate more than 2 years into future
+    const maxFuture = new Date(today.getFullYear() + 2, today.getMonth(), 1);
+
+    while (cursor < maxFuture) {
+        // Calculate the bill for this specific month (Plan + Charges - Discounts)
+        let monthlyBill = acc.plan.fee;
+        const monthStr = cursor.toISOString().slice(0, 7); // "2023-10"
+        
+        // Add specific charges/discounts for this month
+        if(acc.charges) acc.charges.forEach(c => { if(c.date.startsWith(monthStr)) monthlyBill += c.amount; });
+        if(acc.discounts) acc.discounts.forEach(d => { if(d.date.startsWith(monthStr)) monthlyBill -= d.amount; });
+
+        // If totalPaid is enough to cover this month, subtract and move to next
+        if (totalPaid >= monthlyBill) {
+            totalPaid -= monthlyBill;
+        } else {
+            // totalPaid is NOT enough. THIS is the month they need to pay.
+            // Return format: "YYYY-MM"
+            return monthStr; 
+        }
+        
+        // Move to next month
+        cursor.setMonth(cursor.getMonth() + 1);
+    }
+    return new Date().toISOString().slice(0, 7); // Fallback to today
 }
 
 </script>
