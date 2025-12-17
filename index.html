@@ -1339,16 +1339,30 @@
       <div class="muted" style="margin-bottom:8px">Add a payment quickly</div>
       
       <label class="muted">Account</label>
-      <select id="quickAccount"></select>
+<select id="quickAccount"></select>
 
-      <label style="margin-top:8px" class="muted">Billing Month Covered</label>
-      <input id="quickBillingMonth" type="month" />
+<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px;">
+    <div>
+        <label class="muted">Billing Month</label>
+        <input id="quickBillingMonth" type="month" />
+    </div>
+    <div>
+        <label class="muted">Type/Status</label>
+        <select id="quickType">
+            <option value="Regular">Regular</option>
+            <option value="Advance">Advance</option>
+            <option value="On-Time">On-Time</option>
+            <option value="Penalty/Late">Penalty/Late</option>
+        </select>
+    </div>
+</div>
 
-      <label style="margin-top:8px" class="muted">Amount</label>
-      <input id="quickAmount" type="number" value="0" />
-      
-      <label style="margin-top:8px" class="muted">Payment Date</label>
-      <input id="quickDate" type="date" />
+<label style="margin-top:8px" class="muted">Amount</label>
+<input id="quickAmount" type="number" value="0" />
+
+<label style="margin-top:8px" class="muted">Payment Date</label>
+<input id="quickDate" type="date" />
+
 
       <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 8px;">
           <div>
@@ -1475,6 +1489,22 @@
             </div>
             <button id="btnAddSystemPlan" class="small" style="width: 100%; margin-top: 5px;">+ Add Plan</button>
         </div>
+        
+        <hr style="margin:20px 0; border-color: var(--border);">
+<h4 style="color: var(--accent); margin-top: 0;">🧾 Invoice Customization</h4>
+<div style="background: var(--bg); padding: 10px; border-radius: 8px;">
+    <label class="muted">Business/Permit Number (Optional)</label>
+    <input id="setInvPermit" placeholder="e.g., BIR/DTI Permit #12345" />
+    
+    <label style="margin-top:8px" class="muted">TIN / VAT Reg (Optional)</label>
+    <input id="setInvTin" placeholder="e.g., 000-123-456-000" />
+    
+    <label style="margin-top:8px" class="muted">Footer Message</label>
+    <input id="setInvFooter" placeholder="Default: Thank you for your payment!" />
+    
+    <button id="btnSaveInvSettings" class="small" style="width:100%; margin-top:10px;">Save Invoice Settings</button>
+</div>
+
         <hr style="margin:20px 0; border-color: var(--border);">
 
         <h4 style="color: var(--accent); margin-top: 0;">Client Management</h4>
@@ -2827,62 +2857,49 @@ function openAccount(idx){
   // 2. Sort by Date (Newest first)
   allTransactions.sort((x, y) => new Date(y.date) - new Date(x.date));
 
-  // 3. Render the Unified Table
+   // 3. Render the Unified Table
   allTransactions.forEach((t) => {
-      const tr = document.createElement('tr');
-      tr.className = 'txn-row'; // The box style
       
-      let amountDisplay = '';
-      let typeLabel = '';
-      let rowClass = '';
+    // --- FIX START: Define rowClass based on type ---
+    let rowClass = '';
+    if (t.type === 'payment' || t.type === 'discount') {
+        rowClass = 'txn-positive'; // Green style defined in CSS
+    } else {
+        rowClass = 'txn-negative'; // Red style defined in CSS
+    }
+    // --- FIX END ---
 
-      // Determine Styles based on Type
-      if(t.type === 'payment') {
-          rowClass = 'txn-positive';
-          typeLabel = '<span class="badge" style="background:var(--accent);">Payment</span>';
-          amountDisplay = `₱${Number(t.amount).toFixed(2)}`;
-      } 
-      else if(t.type === 'discount') {
-          rowClass = 'txn-positive';
-          typeLabel = '<span class="badge" style="background:var(--toast-success);">Discount</span>';
-          amountDisplay = `+ ₱${Number(t.amount).toFixed(2)}`; // Plus means good for client
-      } 
-      else if(t.type === 'charge') {
-          rowClass = 'txn-negative';
-          typeLabel = '<span class="badge" style="background:var(--toast-error);">Charge</span>';
-          amountDisplay = `- ₱${Number(t.amount).toFixed(2)}`; // Minus means adds to debt
-      }
+    const tr = document.createElement('tr');
+    tr.className = 'txn-row ' + rowClass;
 
-      tr.classList.add(rowClass);
+    // FEATURE 2: CLICK TO PRINT SPECIFIC RECEIPT
+    // We only allow clicking if it's a payment type
+    if (t.type === 'payment') {
+        tr.style.cursor = 'pointer';
+        tr.title = "Click to view receipt";
+        tr.onclick = () => { 
+            // We pass false (not reminder) and the original index of this payment
+            createAndPrintInvoice(false, t.originalIndex); 
+        };
+    }
 
-      // Special column for Payment-specific details (Penalty/Balance)
-      let detailsCol = '';
-      if(t.type === 'payment') {
-          const p = t.obj;
-          detailsCol = `
-            ${p.surchargeApplied > 0 ? `<div style="color:red; font-size:11px;">+₱${p.surchargeApplied} Penalty</div>` : ''} 
-            ${p.balanceApplied != p.amount ? `<div style="color:#666; font-size:11px;">Bal: ₱${p.balanceApplied.toFixed(2)}</div>` : ''}
-          `;
-      } else {
-          detailsCol = `<span class="muted" style="font-size:11px;">${t.type.toUpperCase()} ADJUSTMENT</span>`;
-      }
-
-      tr.innerHTML = `
-          <td>${new Date(t.date).toLocaleDateString()}</td>
-          <td>${typeLabel}<br><span style="font-size:10px;">${t.ref}</span></td>
-          <td style="font-weight:700; font-size:15px;">${amountDisplay}</td>
-          <td>${t.note}</td>
-          <td>${detailsCol}</td>
-          <td>${t.type === 'payment' ? '₱'+(t.obj.appliedTotal||t.amount).toFixed(2) : '-'}</td>
-          <td class="no-print">
-            <button class="small ghost" style="color:red; border-color:red;" 
-                onclick="event.stopPropagation(); deleteTransaction(${activeAccountIndex}, '${t.type}', ${t.originalIndex})">
-                🗑️
-            </button>
-          </td>
-      `;
-      paymentsTbody.appendChild(tr);
+    tr.innerHTML = `
+        <td>${new Date(t.date).toLocaleDateString()}</td>
+        <td>${t.ref || ''}</td> <td class="${t.type === 'charge' ? 'text-danger' : 'text-success'}" style="font-weight:700">
+            ${t.type === 'payment' ? 'Payment' : t.type.charAt(0).toUpperCase() + t.type.slice(1)}
+        </td>
+        <td>${t.note || ''}</td>
+        <td style="text-align:right">₱${Number(t.amount).toFixed(2)}</td>
+        <td class="no-print">
+          <button class="small ghost" style="color:red; border-color:red;" 
+              onclick="event.stopPropagation(); deleteTransaction(${activeAccountIndex}, '${t.type}', ${t.originalIndex})">
+              🗑️
+          </button>
+        </td>
+    `;
+    paymentsTbody.appendChild(tr);
   });
+
 
   // init calendar to this month
   const now = new Date();
@@ -3321,40 +3338,36 @@ document.getElementById('quickAccount').onchange = ()=>{
   }
 };
 
-document.getElementById('btnQuickPay').onclick = ()=>{
+document.getElementById('btnQuickPay').onclick = () => {
   const idx = Number(document.getElementById('quickAccount').value);
   const amt = Number(document.getElementById('quickAmount').value);
   const date = document.getElementById('quickDate').value;
-
-  // NEW FIELDS
-  const billMonth = document.getElementById('quickBillingMonth').value; // e.g., "2023-10"
+  const billMonthRaw = document.getElementById('quickBillingMonth').value; // YYYY-MM
+  const typeStatus = document.getElementById('quickType').value;
   const method = document.getElementById('quickMethod').value;
   const ref = document.getElementById('quickRef').value.trim();
 
-  // Validation
   if(Number.isNaN(idx) || !accounts[idx] || !date || amt<=0) {
       return showToast('Choose account, date, and amount', 'error');
   }
-  if(method === 'GCash' && !ref) {
-      return showToast('Reference Number is REQUIRED for GCash payments.', 'error');
-  }
 
-  // Convert "2023-10" to "October 2023" for display
+  // Format Month for Display
   let formattedMonth = "N/A";
-  if(billMonth) {
-      const [y, m] = billMonth.split('-');
+  if(billMonthRaw) {
+      const [y, m] = billMonthRaw.split('-');
       const dateObj = new Date(y, m - 1);
       formattedMonth = dateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
   }
 
-  const note = `For ${formattedMonth} (${method})`;
+  const note = `Bill: ${formattedMonth} (${typeStatus})`;
 
   applyPaymentToAccount(accounts[idx], {
       date: date, 
       amount: amt, 
-      note: note, // We save the specific month/method in the note
-      method: method, // Save separately for invoice logic
-      billingMonth: formattedMonth, // Save separately for invoice logic
+      note: note, 
+      method: method,
+      billingMonth: formattedMonth, // Storing specific month
+      paymentStatus: typeStatus,    // Storing specific status (Advance/Penalty)
       referenceNumber: ref || generateRefNumber(accounts[idx].accountNumber, date)
   });
 
@@ -3362,10 +3375,9 @@ document.getElementById('btnQuickPay').onclick = ()=>{
   renderAccounts(); 
   modalQuickPayBackdrop.style.display='none'; 
   showToast('Quick Payment added.', 'success');
-
-  // Reset inputs
   document.getElementById('quickRef').value = "";
 };
+
 
 
 /* =========================
@@ -3739,124 +3751,104 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 // --- REPLACE YOUR OLD generateInvoiceHtml WITH THIS NEW VERSION ---
 
-function generateInvoiceHtml(acc, isReminder = false) {
-    const lastPayment = acc.payments.length ? acc.payments[acc.payments.length - 1] : null;
+function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
+    // Determine which payment to show
+    let targetPayment = null;
+    if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
+        targetPayment = acc.payments[specificPaymentIndex];
+    } else if (!isReminder && acc.payments.length > 0) {
+        targetPayment = acc.payments[acc.payments.length - 1]; // Default to last
+    }
+
     const today = new Date();
     const planFee = acc.plan.fee;
     
-    // 1. Setup Dates, Ref, Method
-    const displayDate = (!isReminder && lastPayment) 
-        ? new Date(lastPayment.date).toLocaleDateString() 
-        : today.toLocaleDateString();
+    // CONTEXT DATES
+    // If viewing a specific payment, look for charges in THAT month.
+    // If reminder, look for charges in the UPCOMING month/Current month.
+    let contextDateStr = isReminder ? new Date(acc.nextDue).toISOString().slice(0, 7) : (targetPayment ? targetPayment.date.slice(0, 7) : today.toISOString().slice(0, 7));
 
-    const refNum = (!isReminder && lastPayment && lastPayment.referenceNumber) 
-        ? lastPayment.referenceNumber
-        : "REMINDER"; 
+    // 1. SETUP HEADER DATA
+    const displayDate = targetPayment ? new Date(targetPayment.date).toLocaleDateString() : today.toLocaleDateString();
+    const refNum = targetPayment ? (targetPayment.referenceNumber || "REF") : "BILLING";
+    const payMethod = targetPayment ? (targetPayment.method || "Cash") : "Pending";
+    const billingMonthDisplay = targetPayment ? (targetPayment.billingMonth || "General Payment") : new Date(acc.nextDue).toLocaleString('default', { month: 'long', year: 'numeric' });
 
-    const payMethod = (!isReminder && lastPayment && lastPayment.method) 
-        ? lastPayment.method 
-        : (isReminder ? "Pending" : "Cash");
-
-    // ============================================================
-    // TASK 2 LOGIC: REMINDER WARNING & UNPAID MONTH CALCULATION
-    // ============================================================
-    let coverageText = "---";
-    let warningHtml = ""; // This will hold the red warning box
-    let statusLabel = "";
-
-    if (!isReminder && lastPayment) {
-        // --- RECEIPT MODE ---
-        // If it's a receipt, show what the payment covered (e.g., "October 2023")
-        if (lastPayment.billingMonth) {
-            coverageText = lastPayment.billingMonth;
-        } else {
-            coverageText = calculateMonthsCovered(acc.nextDue, lastPayment.amount, planFee);
-        }
-    } else {
-        // --- REMINDER MODE ---
-        // Calculate Debt
-        const debt = acc.excessLackingBalance < 0 ? Math.abs(acc.excessLackingBalance) : 0;
-        
-        // Calculate how many months constitute the debt
-        // (e.g., Debt 1000, Fee 500 = 2 Months)
-        const monthsOwed = debt > 0 ? (debt / planFee) : 0;
-
-        // Date Logic to determine "Present Unpaid Month"
-        const dueDt = new Date(acc.nextDue);
-        const monthName = dueDt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-        if (monthsOwed <= 1.1) {
-            // SCENARIO A: Just the current month is due (or slightly more)
-            coverageText = monthName; 
-            statusLabel = `<div style="text-align:center; color: #d49a37; font-weight:bold; margin: 5px 0;">CURRENT BILLING</div>`;
-        } else {
-            // SCENARIO B: Overdue (More than 1 month worth of debt)
-            // Show Warning Note
-            coverageText = `Overdue (${Math.floor(monthsOwed)} Months)`;
-            
-            warningHtml = `
-            <div style="border: 2px solid red; background: #ffe6e6; color: red; padding: 5px; text-align: center; font-weight: bold; font-size: 11px; margin: 10px 0;">
-                ⚠ WARNING: PAYMENT OVERDUE<br>
-                Please pay immediately to avoid disconnection.
-            </div>`;
-        }
-    }
-
-    // ============================================================
-    // TASK 1 LOGIC: DETAILED CHARGES AND DISCOUNTS ON INVOICE
-    // ============================================================
-    // Logic: If Receipt, show items from payment month. If Reminder, show ALL unpaid items or current month items.
-    
-    // For simplicity: We grab items matching the current view's date context
-    const invoiceDateStr = (!isReminder && lastPayment) ? lastPayment.date : today.toISOString().slice(0, 10);
-    const invoiceMonth = invoiceDateStr.slice(0, 7); // YYYY-MM
-    
+    // 2. GATHER CHARGES & DISCOUNTS (Feature 5)
+    // We filter charges that match the 'contextDateStr' (YYYY-MM)
     let extraItemsHtml = '';
-    
-    // 1. Add Charges (Hardware, Labor, etc) with specific NOTE
+    let totalExtras = 0;
+
     if(acc.charges) {
         acc.charges.forEach(c => {
-            // If Receipt: Only show if charge date matches payment month
-            // If Reminder: Show if it matches current month OR if account is in debt (assuming unpaid)
-            if(c.date.startsWith(invoiceMonth) || (isReminder && acc.excessLackingBalance < 0)) {
+            // Show if dates match OR if it's a reminder and we assume unpaid charges are relevant
+            if(c.date.startsWith(contextDateStr) || (isReminder && acc.excessLackingBalance < 0)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-error);">
-                    <span>[+] ${c.note || 'Extra Charge'}</span>
+                    <span>[+] ${c.note || 'Charge'}</span>
                     <span>₱${Number(c.amount).toFixed(2)}</span>
                 </div>`;
+                totalExtras += Number(c.amount);
             }
         });
     }
 
-    // 2. Add Discounts with specific NOTE
     if(acc.discounts) {
         acc.discounts.forEach(d => {
-            if(d.date.startsWith(invoiceMonth)) {
+            if(d.date.startsWith(contextDateStr)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-success);">
                     <span>[-] ${d.note || 'Discount'}</span>
                     <span>-₱${Number(d.amount).toFixed(2)}</span>
                 </div>`;
+                totalExtras -= Number(d.amount);
             }
         });
     }
 
-    // Main Amount Calculation
-    let mainAmount = 0;
-    let label = "";
-    
-    if(!isReminder && lastPayment) {
-        mainAmount = Number(lastPayment.amount);
-        label = "AMOUNT PAID";
+    // 3. CALCULATION LOGIC (Feature 1: Auto Deduct)
+    let amountDisplay = 0;
+    let balanceRowHtml = '';
+    let grandTotal = 0;
+
+    if(isReminder) {
+        // REMINDER LOGIC
+        const currentBalance = acc.excessLackingBalance; // Negative means debt, Positive means advance
+        const nextBillAmount = planFee + totalExtras;
+        
+        // Show the current Plan Fee
+        grandTotal = nextBillAmount;
+
+        // Apply Balance (Auto Deduct or Add Arrears)
+        if(currentBalance > 0) {
+            // User has excess credit
+            balanceRowHtml = `
+            <div class="therm-row" style="color:var(--toast-success);">
+                <span>Less: Wallet Balance</span>
+                <span>-₱${currentBalance.toFixed(2)}</span>
+            </div>`;
+            grandTotal = Math.max(0, nextBillAmount - currentBalance);
+        } else if (currentBalance < 0) {
+            // User has past due
+            balanceRowHtml = `
+            <div class="therm-row" style="color:var(--toast-error);">
+                <span>Plus: Unpaid Balance</span>
+                <span>₱${Math.abs(currentBalance).toFixed(2)}</span>
+            </div>`;
+            grandTotal = nextBillAmount + Math.abs(currentBalance);
+        }
+        
+        amountDisplay = grandTotal;
     } else {
-        mainAmount = acc.excessLackingBalance < 0 ? Math.abs(acc.excessLackingBalance) : 0;
-        label = "TOTAL BALANCE DUE";
+        // RECEIPT LOGIC (Specific Payment)
+        amountDisplay = Number(targetPayment.amount);
     }
 
-    // ---------------------------------------------
-    // BUILD THE HTML
-    // ---------------------------------------------
-    const pts = acc.points;
+    // 4. SETTINGS INJECTION (Feature 3)
+    const permitHtml = invSettings.permit ? `<div>Permit: ${invSettings.permit}</div>` : '';
+    const tinHtml = invSettings.tin ? `<div>TIN: ${invSettings.tin}</div>` : '';
+    const footerMsg = invSettings.footer || (isReminder ? "Please pay before due date." : "Thank you for your payment!");
+
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -3864,6 +3856,7 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <div class="therm-title">N'RTECH INTERNET</div>
             <div>San Vicente, Tubod, LDN</div>
             <div>0946-895-3577</div>
+            ${permitHtml} ${tinHtml}
         </div>
 
         <div class="therm-info">
@@ -3872,59 +3865,41 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
-            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name}</span></div>
         </div>
 
-        <div class="therm-divider"></div>
-
-        <div style="font-weight:bold; text-align:center; margin: 10px 0;">
-            ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
+        <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">
+            ${isReminder ? `BILLING: ${billingMonthDisplay}` : 'OFFICIAL RECEIPT'}
         </div>
 
-        ${statusLabel} <div class="therm-row">
+        <div class="therm-row">
             <span>Description</span>
             <span>Amount</span>
         </div>
         
         <div class="therm-row">
-            <span>Internet Service Fee</span>
+            <span>Internet Plan (${acc.plan.name})</span>
             <span>₱${planFee.toFixed(2)}</span>
         </div>
 
-        ${extraItemsHtml} 
+        ${extraItemsHtml}
+        ${balanceRowHtml}
 
         <div class="therm-divider"></div>
 
-        <div class="therm-row" style="font-size: 14px; font-weight: 800;">
-            <span>${label}:</span>
-            <span>₱${mainAmount.toFixed(2)}</span>
+        <div class="therm-row" style="font-size: 16px; font-weight: 800;">
+            <span>${isReminder ? 'TOTAL AMOUNT DUE' : 'AMOUNT PAID'}:</span>
+            <span>₱${amountDisplay.toFixed(2)}</span>
         </div>
 
-        ${warningHtml}
-
-        <div style="margin-top: 10px; font-size: 11px;">
-            <div class="therm-row">
-                <span>Coverage:</span>
-                <strong>${coverageText}</strong>
-            </div>
-            <div class="therm-row">
-                <span>Payment Method:</span>
-                <span>${payMethod}</span>
-            </div>
-        </div>
-
-        <div class="therm-points-box">
-            <strong>LOYALTY POINTS</strong><br>
-            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; margin-top:2px;">
-                <div>Adv<br><b>${pts.advance}</b></div>
-                <div>OnTime<br><b>${pts.ontime}</b></div>
-                <div>Lost<br><b>${pts.lost}</b></div>
-            </div>
-        </div>
+        ${!isReminder ? `
+        <div style="margin-top:5px; font-size:11px; text-align:center;">
+            Payment for: <b>${billingMonthDisplay}</b><br>
+            Method: ${payMethod} | Status: ${targetPayment.paymentStatus || 'Regular'}
+        </div>` : ''}
 
         <div class="therm-footer">
             <br>
-            <i>${isReminder ? 'Please pay before due date.' : 'Thank you for your payment!'}</i>
+            <i>${footerMsg}</i>
         </div>
     </div>
     `;
@@ -3937,58 +3912,38 @@ function generateInvoiceHtml(acc, isReminder = false) {
 /* =========================
    UPDATED: THERMAL PRINT FUNCTION
    ========================= */
-function createAndPrintInvoice(isReminder = false) {
+function createAndPrintInvoice(isReminder = false, specificPaymentIndex = null) {
     if (activeAccountIndex === null) return showToast('Please select an account first.', 'warning');
     const acc = accounts[activeAccountIndex];
     
-    // Regenerate HTML with new Thermal Design
-    const html = generateInvoiceHtml(acc, isReminder);
+    // Pass the specific index to the HTML generator
+    const html = generateInvoiceHtml(acc, isReminder, specificPaymentIndex);
 
-    const w = window.open('', '_blank', 'width=400,height=600'); // Open smaller window
+    const w = window.open('', '_blank', 'width=400,height=600');
     w.document.write(`
     <html>
         <head>
-            <title>Receipt - ${acc.accountNumber}</title>
+            <title>Receipt</title>
             <style>
-                /* Import the CSS directly into the popup */
                 body { margin: 0; padding: 0; font-family: 'Courier New', monospace; }
-                
-                .invoice-thermal {
-                    width: 78mm;
-                    margin: 0 auto;
-                    padding: 10px;
-                    text-align: left;
-                }
-                
-                /* Layout Helpers from Step 1 */
-.therm-header { text-align: center; border-bottom: 2px dashed #000; margin-bottom: 10px; padding-bottom: 10px;}
-.therm-logo { width: 100px; filter: grayscale(100%); } /* <--- CHANGED TO 100px */
-.therm-title { font-weight: 800; font-size: 14px; margin-top:5px; }
-
+                .invoice-thermal { width: 78mm; margin: 0 auto; padding: 10px; }
+                .therm-header { text-align: center; border-bottom: 2px dashed #000; margin-bottom: 10px; padding-bottom: 10px;}
+                .therm-logo { width: 80px; filter: grayscale(100%); }
                 .therm-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
                 .therm-divider { border-top: 1px dashed #000; margin: 8px 0; }
-                .therm-points-box { border: 1px solid #000; padding: 5px; margin: 10px 0; text-align: center; font-size: 11px; }
                 .therm-footer { text-align: center; margin-top: 15px; font-size: 10px; }
-                
-                @media print {
-                    @page { margin: 0; size: 80mm auto; }
-                    body { margin: 0; }
-                    .invoice-thermal { width: 100%; border: none; }
-                }
             </style>
         </head>
         <body>
             ${html}
             <script>
-                window.onload = function() {
-                    window.print();
-                    // setTimeout(() => window.close(), 1000); // Optional auto-close
-                }
+                window.onload = function() { window.print(); }
             <\/script>
         </body>
     </html>`);
     w.document.close();
 }
+
 
 
 
@@ -5017,6 +4972,28 @@ function toggleQuickRef() {
         refInput.style.borderColor = "var(--border)";
     }
 }
+
+// --- INVOICE SETTINGS LOGIC ---
+const INV_SETTINGS_KEY = 'nrtech_inv_settings_v3';
+let invSettings = JSON.parse(localStorage.getItem(INV_SETTINGS_KEY)) || { permit: '', tin: '', footer: '' };
+
+// Load settings into inputs when Settings Modal opens
+const originalSettingsOpen = document.getElementById('navBtnSettings').onclick;
+document.getElementById('navBtnSettings').onclick = () => {
+    originalSettingsOpen(); // Call the existing function
+    document.getElementById('setInvPermit').value = invSettings.permit;
+    document.getElementById('setInvTin').value = invSettings.tin;
+    document.getElementById('setInvFooter').value = invSettings.footer;
+};
+
+document.getElementById('btnSaveInvSettings').onclick = () => {
+    invSettings.permit = document.getElementById('setInvPermit').value;
+    invSettings.tin = document.getElementById('setInvTin').value;
+    invSettings.footer = document.getElementById('setInvFooter').value;
+    localStorage.setItem(INV_SETTINGS_KEY, JSON.stringify(invSettings));
+    showToast('Invoice settings saved!', 'success');
+};
+
 
 </script>
 </body>
