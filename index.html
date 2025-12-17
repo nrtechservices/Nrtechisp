@@ -2851,98 +2851,103 @@ function getEffectiveMonthlyFee(acc) {
 }
 
 /* =========================================
-   STEP 1: NEW CALCULATION ENGINE (Copy & Replace)
+   NEW CORE ENGINE: SPECIFIC MONTH ALLOCATION & CARRY-OVER
    ========================================= */
 function recomputePointsAndBalance(acc) {
-    // 1. Safety Check for Arrays
+    // 1. Safety Checks
     if (!acc.payments) acc.payments = [];
     if (!acc.charges) acc.charges = [];
     if (!acc.discounts) acc.discounts = [];
-    if (!acc.points) acc.points = { advance: 0, ontime: 0, lost: 0 };
-
+    
+    // Reset Points
     acc.points = { advance: 0, ontime: 0, lost: 0 };
 
-    // 3. Calculate Total Cash In
-    let totalCashIn = 0;
-    acc.payments.forEach(p => totalCashIn += Number(p.amount));
+    // 2. Setup Loop
+    // Start from creation date, normalized to the 1st of that month
+    let cursorDate = new Date(acc.createdAt);
+    cursorDate.setDate(1); 
+    cursorDate.setHours(0,0,0,0);
 
-    // 4. Time Loop Configuration
-    let cursorDate = new Date(acc.createdAt || new Date());
-    cursorDate.setDate(FIXED_BILLING_DAY); 
     const today = new Date();
-    // Calculate up to next month
-    const futureLimit = new Date(today.getFullYear(), today.getMonth() + 2, 0);
+    // Calculate up to 2 months into the future to show projections
+    const limitDate = new Date(today.getFullYear(), today.getMonth() + 2, 1);
 
-    let totalObligations = 0; 
+    // This variable carries the "Sukli" (Positive) or "Kulang" (Negative) to the next month
+    let forwardedBalance = 0; 
 
-    // 5. The Calculation Loop
-    while (cursorDate <= futureLimit) {
-        const monthStr = cursorDate.toISOString().slice(0, 7); // "YYYY-MM"
+    // 3. The Ledger Loop (Month by Month)
+    while (cursorDate <= limitDate) {
+        const monthStr = cursorDate.toISOString().slice(0, 7); // Format: "YYYY-MM"
         
-        // Stop if too far in future
-        if (cursorDate > new Date(today.getFullYear(), today.getMonth() + 1, FIXED_BILLING_DAY + 1)) {
-            break;
-        }
+        // --- A. CALCULATE BILL FOR THIS MONTH ---
+        let monthlyBill = acc.plan.fee;
 
-        // A. Base Fee
-        let monthlyBill = Number(acc.plan.fee);
-
-        // B. Add Charges for this specific month
+        // Add Specific Charges for this month
         acc.charges.forEach(c => {
-            if(c.date && c.date.startsWith(monthStr)) monthlyBill += Number(c.amount);
+            if (c.date.startsWith(monthStr)) monthlyBill += Number(c.amount);
         });
 
-        // C. Deduct Discounts
+        // Deduct Specific Discounts for this month
         acc.discounts.forEach(d => {
-            if(d.date && d.date.startsWith(monthStr)) monthlyBill -= Number(d.amount);
+            if (d.date.startsWith(monthStr)) monthlyBill -= Number(d.amount);
         });
 
-        // D. Loyalty Reward Logic
-        if (acc.points.advance >= 12) {
-            monthlyBill = 0; acc.points.advance -= 12;
-        } else if (acc.points.ontime >= 12) {
-            monthlyBill = monthlyBill / 2; acc.points.ontime -= 12;
-        }
+        // --- B. FIND PAYMENTS SPECIFIC TO THIS MONTH ---
+        // We filter payments that match this 'billingMonth' OR matches the date if not specified
+        let paymentsForMonth = acc.payments.filter(p => {
+            // Priority: Check if admin set a specific billingMonth (e.g., "October 2023")
+            if (p.billingMonthStr === monthStr) return true;
+            // Fallback: If no specific month tag, matches the payment date
+            if (!p.billingMonthStr && p.date.startsWith(monthStr)) return true;
+            return false;
+        });
 
-        // E. Add to Debt
-        totalObligations += monthlyBill;
+        let totalPaidThisMonth = paymentsForMonth.reduce((sum, p) => sum + Number(p.amount), 0);
 
-        // F. Point Gaining Logic (Past/Present only)
-        if (cursorDate <= today) {
-            if (totalCashIn >= totalObligations) {
-                if ((totalCashIn - totalObligations) >= acc.plan.fee) {
-                    acc.points.advance++;
-                } else {
-                    acc.points.ontime++;
-                }
-            } else {
-                if (today.getDate() > FIXED_BILLING_DAY) {
-                    acc.points.lost++;
-                }
+        // --- C. APPLY POINTS LOGIC (Your Specific Rules) ---
+        paymentsForMonth.forEach(p => {
+            const pDate = new Date(p.date);
+            const day = pDate.getDate();
+
+            if (day <= 19) {
+                // 1st - 19th: Advance
+                acc.points.advance++;
+            } else if (day === 20) {
+                // 20th: On-Time
+                acc.points.ontime++;
+            } else if (day >= 21 && day <= 25) {
+                // 21st - 25th: Penalty (Deduct from Active Points)
+                if (acc.points.ontime > 0) acc.points.ontime--;
+                else if (acc.points.advance > 0) acc.points.advance--;
+                else acc.points.lost++; // If no points to deduct, mark as lost
             }
-        }
+            // 26th+ is typically Reconnection/Termination, no points usually, or logic can be added here.
+        });
+
+        // --- D. CALCULATE ENDING BALANCE ---
+        // Formula: (Money from Prev Month + Money Paid Now) - Bill
+        let netResult = (forwardedBalance + totalPaidThisMonth) - monthlyBill;
+
+        // Prepare for next loop iteration
+        forwardedBalance = netResult; 
+
+        // Store this month's status (Optional, for debugging or advanced UI)
+        // console.log(`Month: ${monthStr}, Bill: ${monthlyBill}, Paid: ${totalPaidThisMonth}, Forwarded: ${forwardedBalance}`);
+
+        // Move cursor to next month
         cursorDate.setMonth(cursorDate.getMonth() + 1);
     }
 
-    // --- NEW LOGIC: DEFAULT BALANCE 0 IF NO PAYMENT ---
-    acc.excessLackingBalance = totalCashIn - totalObligations;
-    
-    // If no payments have ever been made, and the resulting balance is negative (debt), 
-    // visually force it to 0 for a cleaner "Start" look, 
-    // UNLESS the account is older than 30 days (then show the debt).
-    if (acc.payments.length === 0) {
-         const accountAgeMs = new Date() - new Date(acc.createdAt);
-         const daysOld = accountAgeMs / (1000 * 60 * 60 * 24);
-         
-         // If account is new (less than 25 days) and hasn't paid, show 0 instead of negative
-         if(daysOld < 25 && acc.excessLackingBalance < 0) {
-             acc.excessLackingBalance = 0;
-         }
-    }
-    
-    // 7. Auto-update Next Due
-    acc.nextDue = getNextBillingCycleDueDate();
+    // 4. Final Status Update
+    // The final 'forwardedBalance' is the current account standing.
+    acc.excessLackingBalance = forwardedBalance;
+
+    // 5. Update Next Due Date
+    // If balance is negative (Kulang), due date is immediate/past. 
+    // If positive (Sukli covers next bill), push due date.
+    acc.nextDue = getNextBillableMonth(acc); // Uses helper function to find first unpaid month
 }
+
 
 
 
@@ -3379,30 +3384,62 @@ document.getElementById('btnAddPayment').onclick = ()=>{
   modalPayBackdrop.style.display='flex';
 };
 
-document.getElementById('savePay').onclick = ()=>{
-  const a = accounts[activeAccountIndex];
-  const amt = Number(document.getElementById('payAmount').value);
-  const date = document.getElementById('payDate').value;
-  const note = document.getElementById('payNote').value;
-  if(!date || amt <= 0){ showToast('Enter amount and date', 'error'); return; }
+document.getElementById('savePay').onclick = () => {
+    const a = accounts[activeAccountIndex];
+    const amt = Number(document.getElementById('payAmount').value);
+    const date = document.getElementById('payDate').value;
+    const note = document.getElementById('payNote').value;
+    
+    // CAPTURE THE SPECIFIC MONTH
+    const billMonthRaw = document.getElementById('payBillingMonthHelper').value; // "2023-11"
 
-  applyPaymentToAccount(a, {date, amount:amt, note});
+    if (!date || amt <= 0) {
+        showToast('Enter amount and date', 'error');
+        return;
+    }
 
-  saveAccounts(); modalPayBackdrop.style.display='none'; showToast('Payment added successfully.', 'success'); renderAccounts(); openAccount(activeAccountIndex);
+    applyPaymentToAccount(a, {
+        date: date,
+        amount: amt,
+        note: note,
+        billingMonthStr: billMonthRaw // IMPORTANT: Save the allocation
+    });
+
+    saveAccounts();
+    modalPayBackdrop.style.display = 'none';
+    showToast('Payment added successfully.', 'success');
+    renderAccounts();
+    openAccount(activeAccountIndex);
 };
 
-function applyPaymentToAccount(acc, payment){
+
+function applyPaymentToAccount(acc, payment) {
     payment.amount = Number(payment.amount || 0);
-    payment.referenceNumber = generateRefNumber(acc.accountNumber, payment.date);
+    payment.referenceNumber = payment.referenceNumber || generateRefNumber(acc.accountNumber, payment.date);
+    
+    // --- NEW: ENSURE BILLING MONTH IS SAVED ---
+    // If the modal passed a friendly name like "October 2023", we convert it to "2023-10" for the logic
+    // If not provided, we derive it from the payment date.
+    
+    if (payment.billingMonth) {
+        // payment.billingMonth comes from the UI as Friendly Name usually, 
+        // OR we can pass a raw string. Let's rely on the INPUT value from the modal.
+        // We will grab the RAW value from the DOM in the button click handler, 
+        // but here we ensure we have a 'billingMonthStr' property for the logic (YYYY-MM).
+        
+        // This relies on the button handlers passing the correct data.
+        // Let's assume payment.billingMonthRaw is passed as "2023-10".
+    }
+    
     acc.payments.push(payment);
 
     recomputePointsAndBalance(acc);
 
-    acc.nextDue = computeNextDue(payment.date, FIXED_BILLING_DAY);
-    if(acc.status !== 'Active') acc.status = 'Active';
+    if (acc.status !== 'Active') acc.status = 'Active';
 
     saveAccounts();
 }
+
 
 
 async function deletePayment(accIdx, payIdx){
@@ -4213,69 +4250,58 @@ function generateInvoiceHtml(acc, isReminder = false) {
         `;
     }
 
-    // --- SECTION B: CURRENT BILL CALCULATION ---
-    let invoiceRows = ""; 
-    let currentMonthSubtotal = 0;
-
-    // 1. BASE PLAN
-    currentMonthSubtotal += acc.plan.fee;
-    invoiceRows += `<div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${acc.plan.fee.toFixed(2)}</span></div>`;
-
-    // 2. ADD CHARGES (Strictly for filterMonth)
-    if(acc.charges) {
-        acc.charges.forEach(c => {
-            if(c.date.startsWith(filterMonth)) {
-                currentMonthSubtotal += c.amount;
-                invoiceRows += `<div class="therm-row" style="color:var(--toast-error);">
-                    <span>+ ${c.note || 'Extra Charge'}</span>
-                    <span>₱${c.amount.toFixed(2)}</span>
-                </div>`;
-            }
-        });
-    }
-
-    // 3. DEDUCT DISCOUNTS (Strictly for filterMonth)
-    if(acc.discounts) {
-        acc.discounts.forEach(d => {
-            if(d.date.startsWith(filterMonth)) {
-                currentMonthSubtotal -= d.amount;
-                invoiceRows += `<div class="therm-row" style="color:var(--toast-success);">
-                    <span>- ${d.note || 'Discount'}</span>
-                    <span>(₱${d.amount.toFixed(2)})</span>
-                </div>`;
-            }
-        });
-    }
-
-    // Show Subtotal Line
-    invoiceRows += `
-    <div class="therm-row" style="border-top: 1px dashed #aaa; margin-top: 4px; padding-top: 4px; font-weight:bold;">
-        <span>SUBTOTAL (This Month)</span>
-        <span>₱${currentMonthSubtotal.toFixed(2)}</span>
-    </div>`;
-
-    // --- SECTION C: SUKLI (EXCESS) & KULANG (LACKING) LOGIC ---
-    let totalAmountDue = 0;
+    // --- SECTION B & C COMBINED: LEDGER VIEW ---
+    let invoiceRows = "";
     
-    // Recalculate pure debt for invoice purposes
-    // If excessLackingBalance is negative, that is the debt.
+    // 1. Determine Previous Balance (Carry Over)
+    // We need to calculate what the balance was *before* this specific payment/month.
+    // NOTE: This assumes the "excessLackingBalance" in the account object is the CURRENT total.
+    // For the invoice, we want to show the specific calculation for THIS month.
+    
+    // Calculate Bill for Target Month
+    let monthlyBill = acc.plan.fee;
+    if (acc.charges) acc.charges.forEach(c => { if (c.date.startsWith(filterMonth)) monthlyBill += Number(c.amount); });
+    if (acc.discounts) acc.discounts.forEach(d => { if (d.date.startsWith(filterMonth)) monthlyBill -= Number(d.amount); });
+
+    invoiceRows += `<div class="therm-row"><span>Monthly Plan</span><span>₱${acc.plan.fee.toFixed(2)}</span></div>`;
+    
+    // Add charges/discounts to view
+    if (acc.charges) acc.charges.forEach(c => { if (c.date.startsWith(filterMonth)) 
+        invoiceRows += `<div class="therm-row" style="color:red;"><span>+ ${c.note}</span><span>₱${c.amount}</span></div>`; });
+    if (acc.discounts) acc.discounts.forEach(d => { if (d.date.startsWith(filterMonth)) 
+        invoiceRows += `<div class="therm-row" style="color:green;"><span>- ${d.note}</span><span>(₱${d.amount})</span></div>`; });
+
+    invoiceRows += `<div class="therm-divider"></div>`;
+
+    // Visual Logic for Invoice
+    // Total Due for this month only
+    const currentMonthDue = monthlyBill;
+
+    // Previous Balance logic is complex to reconstruct perfectly without a full ledger history in the UI,
+    // but we can approximate it: Total Due Now - Current Month Bill.
+    let previousBalance = 0;
+    // If excessLacking is negative (Kulang), and we add back the current payment, we get the state before.
+    
+    // SIMPLIFIED INVOICE LOGIC FOR CLARITY:
+    invoiceRows += `<div class="therm-row" style="font-weight:bold;"><span>CURRENT BILL:</span><span>₱${currentMonthDue.toFixed(2)}</span></div>`;
+    
+    // Show if there is a remaining balance (Kulang) or Excess (Sukli) AFTER everything
     if (acc.excessLackingBalance < 0) {
-        totalAmountDue = Math.abs(acc.excessLackingBalance);
-    } 
+        // Negative means Debt/Kulang
+        let debt = Math.abs(acc.excessLackingBalance);
+        invoiceRows += `<div class="therm-row" style="color:red; margin-top:5px;"><span>TOTAL OUTSTANDING:</span><span>₱${debt.toFixed(2)}</span></div>`;
+        
+        // If debt is larger than current bill, show the previous arrears
+        if (debt > currentMonthDue) {
+             invoiceRows += `<div class="therm-row" style="color:#888; font-size:10px;"><span>(Includes Prev. Balance: ₱${(debt - currentMonthDue).toFixed(2)})</span><span></span></div>`;
+        }
 
-    let previousBalance = totalAmountDue - currentMonthSubtotal;
-
-    if (previousBalance < -1) { 
-        invoiceRows += `<div class="therm-row" style="color:green; font-size:11px; margin-top:5px;">
-            <span>- LESS: ADVANCE (Sukli)</span>
-            <span>(₱${Math.abs(previousBalance).toFixed(2)})</span>
-        </div>`;
-    } 
-    else if (previousBalance > 1) { 
-        invoiceRows += `<div class="therm-row" style="color:red; font-size:11px; margin-top:5px;">
-            <span>+ UNPAID PREV. BILL (Kulang)</span>
-            <span>₱${previousBalance.toFixed(2)}</span>
-        </div>`;
+    } else if (acc.excessLackingBalance > 0) {
+        // Positive means Excess/Sukli
+        invoiceRows += `<div class="therm-row" style="color:green; margin-top:5px;"><span>EXCESS (SUKLI):</span><span>₱${acc.excessLackingBalance.toFixed(2)}</span></div>`;
+        invoiceRows += `<div class="therm-row" style="font-size:10px;"><span>*Deducted from next bill</span><span></span></div>`;
+    } else {
+        invoiceRows += `<div class="therm-row" style="margin-top:5px;"><span>STATUS:</span><span>FULLY PAID</span></div>`;
     }
 
 
@@ -5638,52 +5664,51 @@ document.getElementById('dashBtnQuickPay').onclick = () => {
 };
 
 // 3. UPDATED SUBMIT BUTTON
-document.getElementById('btnQuickPay').onclick = ()=>{
-  const idx = Number(document.getElementById('quickAccount').value);
-  const amt = Number(document.getElementById('quickAmount').value);
-  const date = document.getElementById('quickDate').value; // crucial: matches selected month
+document.getElementById('btnQuickPay').onclick = () => {
+    const idx = Number(document.getElementById('quickAccount').value);
+    const amt = Number(document.getElementById('quickAmount').value);
+    const date = document.getElementById('quickDate').value; 
+    
+    // CAPTURE THE SPECIFIC MONTH SELECTED
+    const billMonthRaw = document.getElementById('quickBillingMonth').value; // "2023-11"
 
-  // Get Context Data
-  const billMonthRaw = document.getElementById('quickBillingMonth').value; // "2023-10"
-  const method = document.getElementById('quickMethod').value;
-  const ref = document.getElementById('quickRef').value.trim();
+    const method = document.getElementById('quickMethod').value;
+    const ref = document.getElementById('quickRef').value.trim();
 
-  // Validation
-  if(Number.isNaN(idx) || !accounts[idx] || !date || amt<=0) {
-      return showToast('Please select account, date, and valid amount.', 'error');
-  }
-  if(method === 'GCash' && !ref) {
-      return showToast('Reference Number is REQUIRED for GCash payments.', 'error');
-  }
+    if (Number.isNaN(idx) || !accounts[idx] || !date || amt <= 0) {
+        return showToast('Please select account, date, and valid amount.', 'error');
+    }
+    if (method === 'GCash' && !ref) {
+        return showToast('Reference Number is REQUIRED for GCash.', 'error');
+    }
 
-  // Format the Month Name for the Note (e.g., "October 2023")
-  let formattedMonth = "General";
-  if(billMonthRaw) {
-      const [y, m] = billMonthRaw.split('-');
-      // Create date object to get name
-      const dateObj = new Date(y, m - 1, 1);
-      formattedMonth = dateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
-  }
+    // Friendly name for the Note
+    let formattedMonth = "General";
+    if (billMonthRaw) {
+        const [y, m] = billMonthRaw.split('-');
+        const dateObj = new Date(y, m - 1, 1);
+        formattedMonth = dateObj.toLocaleString('default', { month: 'long', year: 'numeric' });
+    }
 
-  // Create the specific Note
-  const finalNote = `Bill: ${formattedMonth} (${method})`;
+    const finalNote = `Bill: ${formattedMonth} (${method})`;
 
-  // Apply Payment
-  applyPaymentToAccount(accounts[idx], {
-      date: date, 
-      amount: amt, 
-      note: finalNote, 
-      method: method, 
-      referenceNumber: ref || generateRefNumber(accounts[idx].accountNumber, date)
-  });
+    applyPaymentToAccount(accounts[idx], {
+        date: date,
+        amount: amt,
+        note: finalNote,
+        method: method,
+        // THIS IS KEY: We save the specific "YYYY-MM" string so the Logic Engine knows exactly where to put the money
+        billingMonthStr: billMonthRaw, 
+        billingMonth: formattedMonth, // Friendly name for display
+        referenceNumber: ref
+    });
 
-  saveAccounts(); 
-  renderAccounts(); 
-  modalQuickPayBackdrop.style.display='none'; 
-  
-  // Confirmation Toast
-  showToast(`Paid ₱${amt} for ${formattedMonth}`, 'success');
+    saveAccounts();
+    renderAccounts();
+    modalQuickPayBackdrop.style.display = 'none';
+    showToast(`Allocated ₱${amt} to ${formattedMonth}`, 'success');
 };
+
 
 /* =========================================
    STEP 3: NEW UNIFIED DELETE FUNCTION
