@@ -1099,6 +1099,34 @@
     display: flex; gap: 5px; margin-bottom: 5px;
 }
 
+
+/* --- NEW: Payment Date Helper Buttons --- */
+.date-helper-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 5px;
+    margin-bottom: 10px;
+}
+.date-helper-btn {
+    padding: 6px 2px;
+    font-size: 10px;
+    border: 1px solid var(--border);
+    background: #fff;
+    color: var(--text);
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-weight: 600;
+}
+.date-helper-btn:hover {
+    background: var(--panel-2);
+    transform: translateY(-1px);
+}
+.date-helper-btn.advance { color: #2e7d32; border-color: #2e7d32; } /* Green */
+.date-helper-btn.ontime { color: var(--accent-2); border-color: var(--accent-2); } /* Gold */
+.date-helper-btn.penalty { color: #ff9800; border-color: #ff9800; } /* Orange */
+.date-helper-btn.reconnect { color: #d32f2f; border-color: #d32f2f; } /* Red */
+
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -1208,17 +1236,6 @@
 
   </div>
 
-<nav id="fixedNavFooter" class="hidden">
-    <button id="navBtnAccounts">
-        <span>&#128100;</span> <div>Accounts</div>
-    </button>
-    <button id="navBtnDashboard">
-        <span>&#128202;</span> <div>Dashboard</div>
-    </button>
-    <button id="navBtnSettings">
-        <span>&#9881;</span> <div>Settings</div>
-    </button>
-</nav>
 
 <nav id="fixedNavFooter" class="hidden">
     <button id="navBtnAccounts">
@@ -1450,7 +1467,7 @@
       <button id="closeQuickPay" class="no-print ghost small">Close</button>
     </div>
     <div style="margin-top:8px">
-      <div class="muted" style="margin-bottom:8px">Select the billing month to auto-set the date.</div>
+      <div class="muted" style="margin-bottom:8px">Select the billing month first:</div>
       
       <label class="muted">Account</label>
       <select id="quickAccount"></select>
@@ -1458,12 +1475,20 @@
       <label style="margin-top:8px" class="muted">Billing Month Covered</label>
       <input id="quickBillingMonth" type="month" />
 
+      <label style="margin-top:8px" class="muted">Set Date Type:</label>
+      <div class="date-helper-grid">
+          <button class="date-helper-btn advance" onclick="setPaymentDate('quick', 'advance')">Advance<br>(1-19)</button>
+          <button class="date-helper-btn ontime" onclick="setPaymentDate('quick', 'ontime')">On-Time<br>(20th)</button>
+          <button class="date-helper-btn penalty" onclick="setPaymentDate('quick', 'penalty')">Penalty<br>(21-25)</button>
+          <button class="date-helper-btn reconnect" onclick="setPaymentDate('quick', 'reconnect')">Reconnect<br>(26+)</button>
+      </div>
+
+      <label class="muted">Payment Date</label>
+      <input id="quickDate" type="date" />
+
       <label style="margin-top:8px" class="muted">Amount</label>
       <input id="quickAmount" type="number" value="0" />
       
-      <label style="margin-top:8px" class="muted">Payment Date (Recorded)</label>
-      <input id="quickDate" type="date" />
-
       <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 8px;">
           <div>
             <label class="muted">Method</label>
@@ -1483,6 +1508,7 @@
   </div>
 </div>
 
+
 <div class="modal-backdrop" id="modalPayBackdrop">
   <div class="modal" style="width: min(95%, 400px);">
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -1491,13 +1517,25 @@
     </div>
     <div style="margin-top:8px">
       <label class="muted">Account</label><div id="payAccName" style="font-weight:700; color: var(--accent-2);"></div>
+      
+      <input type="month" id="payBillingMonthHelper" style="margin-bottom: 5px;" title="Select month to calc date" />
+
+      <label class="muted">Set Date Type:</label>
+      <div class="date-helper-grid">
+          <button class="date-helper-btn advance" onclick="setPaymentDate('detailed', 'advance')">Advance<br>(1-19)</button>
+          <button class="date-helper-btn ontime" onclick="setPaymentDate('detailed', 'ontime')">On-Time<br>(20th)</button>
+          <button class="date-helper-btn penalty" onclick="setPaymentDate('detailed', 'penalty')">Penalty<br>(21-25)</button>
+          <button class="date-helper-btn reconnect" onclick="setPaymentDate('detailed', 'reconnect')">Reconnect<br>(26+)</button>
+      </div>
+
+      <label class="muted">Date</label><input id="payDate" type="date" />
       <label style="margin-top:8px" class="muted">Amount</label><input id="payAmount" type="number" />
-      <label style="margin-top:8px" class="muted">Date</label><input id="payDate" type="date" />
       <label style="margin-top:8px" class="muted">Note</label><input id="payNote" />
       <div style="text-align:right;margin-top:16px"><button id="savePay">Save Payment</button></div>
     </div>
   </div>
 </div>
+
 <div class="modal-backdrop" id="modalLiquidationBackdrop">
   <div class="modal">
     <div style="display:flex;justify-content:space-between;align-items:center">
@@ -1934,8 +1972,11 @@
 const INVOICE_SETTINGS_KEY = 'nrtech_invoice_settings_v4';
 let invoiceSettings = JSON.parse(localStorage.getItem(INVOICE_SETTINGS_KEY)) || {
     vatRate: 0,
-    permits: [] // Format: { id: 1, name: "BIR", number: "123-456" }
+    permits: [] 
 };
+// Add this safety line immediately after:
+if(!invoiceSettings.permits) invoiceSettings.permits = [];
+
 
 function saveInvoiceSettings() {
     localStorage.setItem(INVOICE_SETTINGS_KEY, JSON.stringify(invoiceSettings));
@@ -2573,46 +2614,54 @@ function getMonthName(dateObj) {
 }
 
 
-function loadAccounts(){
-  const raw = localStorage.getItem(STORAGE_KEY);
-  if(!raw){
-    const arr = PRELOAD.map(r=>{
-      const [acc,name,addr,contact,planStr,billingDay,status,pppUser,pppPass, messengerId]=r;
-      const [pname,pfee,pspeed]=planStr.split('|');
-      return {
-        accountNumber: acc, name, address: addr, contact, messengerId: messengerId || '',
-        plan:{name:pname, fee:Number(pfee), speed:pspeed},
-        billingDay: FIXED_BILLING_DAY,
-        status: status || 'Active',
-        pppoeUsername: pppUser || '',
-        pppoePassword: pppPass || '',
-        payments: [],
-        points: {advance:0, ontime:0, lost:0},
-        nextDue: computeNextDue(null, FIXED_BILLING_DAY),
-        excessLackingBalance: 0,
-        createdAt: new Date().toISOString()
-      };
-    });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
-    return arr;
-  }
+function loadAccounts() {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+        const arr = PRELOAD.map(r => {
+            const [acc, name, addr, contact, planStr, billingDay, status, pppUser, pppPass, messengerId] = r;
+            const [pname, pfee, pspeed] = planStr.split('|');
+            return {
+                accountNumber: acc,
+                name,
+                address: addr,
+                contact,
+                messengerId: messengerId || '',
+                plan: { name: pname, fee: Number(pfee), speed: pspeed },
+                billingDay: FIXED_BILLING_DAY,
+                status: status || 'Active',
+                pppoeUsername: pppUser || '',
+                pppoePassword: pppPass || '',
+                payments: [],
+                charges: [],   // NEW: Ensure this exists
+                discounts: [], // NEW: Ensure this exists
+                points: { advance: 0, ontime: 0, lost: 0 },
+                nextDue: computeNextDue(null, FIXED_BILLING_DAY),
+                excessLackingBalance: 0,
+                createdAt: new Date().toISOString()
+            };
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+        return arr;
+    }
     try {
-      const parsed = JSON.parse(raw);
-      // --- NEW: Ensure new fields exist ---
-      return parsed.map(acc => ({
-          messengerId: acc.messengerId || '',
-          clientUsername: acc.clientUsername || null,
-          clientPassword: acc.clientPassword || null,
-          ...acc
-      }));
-      // --- END NEW ---
-  } catch(e){
-      console.error(e);
-      localStorage.removeItem(STORAGE_KEY);
-      return loadAccounts();
-  }
-
+        const parsed = JSON.parse(raw);
+        // Migration: Ensure new fields exist on old accounts
+        return parsed.map(acc => ({
+            ...acc,
+            messengerId: acc.messengerId || '',
+            clientUsername: acc.clientUsername || '',
+            clientPassword: acc.clientPassword || '',
+            charges: acc.charges || [],       // Fix for undefined charges
+            discounts: acc.discounts || [],   // Fix for undefined discounts
+            points: acc.points || { advance: 0, ontime: 0, lost: 0 }
+        }));
+    } catch (e) {
+        console.error(e);
+        localStorage.removeItem(STORAGE_KEY);
+        return loadAccounts();
+    }
 }
+
 function saveAccounts(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts)); }
 
 function computeNextDue(lastPaymentDateIso, billingDay=FIXED_BILLING_DAY){
@@ -2801,102 +2850,97 @@ function getEffectiveMonthlyFee(acc) {
     return Number(acc.plan.fee) || 0;
 }
 
-// 2. Main Logic
 /* =========================================
-   CORE LOGIC: ENHANCED LEDGER CALCULATION
+   STEP 1: NEW CALCULATION ENGINE (Copy & Replace)
    ========================================= */
 function recomputePointsAndBalance(acc) {
-    // 1. Reset Counters
+    // 1. Safety Check for Arrays
+    if (!acc.payments) acc.payments = [];
+    if (!acc.charges) acc.charges = [];
+    if (!acc.discounts) acc.discounts = [];
+    if (!acc.points) acc.points = { advance: 0, ontime: 0, lost: 0 };
+
     acc.points = { advance: 0, ontime: 0, lost: 0 };
-    
-    // 2. Sort payments chronologically
-    const sortedPayments = [...acc.payments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-    // 3. Define Start and End (Today)
-    // We start checking from the account creation or first payment
-    let startDate = sortedPayments.length > 0 ? new Date(sortedPayments[0].date) : new Date(acc.createdAt || new Date());
-    // Align to the 1st of that month for easier looping
-    let cursorDate = new Date(startDate.getFullYear(), startDate.getMonth(), 1); 
-    
+    // 3. Calculate Total Cash In
+    let totalCashIn = 0;
+    acc.payments.forEach(p => totalCashIn += Number(p.amount));
+
+    // 4. Time Loop Configuration
+    let cursorDate = new Date(acc.createdAt || new Date());
+    cursorDate.setDate(FIXED_BILLING_DAY); 
     const today = new Date();
-    const currentMonthStr = today.toISOString().slice(0, 7); // YYYY-MM
-    
-    // 4. LEDGER VARIABLES
-    let totalObligation = 0; // Total money they SHOULD have paid
-    let totalPaid = 0;       // Total money they ACTUALLY paid
-    
-    // Calculate Total Paid
-    sortedPayments.forEach(p => totalPaid += Number(p.amount));
+    // Calculate up to next month
+    const futureLimit = new Date(today.getFullYear(), today.getMonth() + 2, 0);
 
-    // 5. Loop through every month from Start Date until NOW
-    while (cursorDate <= new Date(today.getFullYear(), today.getMonth() + 1, 0)) {
+    let totalObligations = 0; 
+
+    // 5. The Calculation Loop
+    while (cursorDate <= futureLimit) {
+        const monthStr = cursorDate.toISOString().slice(0, 7); // "YYYY-MM"
         
-        // Define the billing window for this cursor month (e.g., Due on the 20th)
-        const billYear = cursorDate.getFullYear();
-        const billMonth = cursorDate.getMonth();
-        const dueDate = new Date(billYear, billMonth, FIXED_BILLING_DAY);
-        const monthStr = cursorDate.toISOString().slice(0, 7);
+        // Stop if too far in future
+        if (cursorDate > new Date(today.getFullYear(), today.getMonth() + 1, FIXED_BILLING_DAY + 1)) {
+            break;
+        }
 
-        // Only calculate obligation if the Due Date has passed OR it is the current month
-        if (dueDate <= today || monthStr === currentMonthStr) {
-            
-            let monthlyBill = Number(acc.plan.fee);
+        // A. Base Fee
+        let monthlyBill = Number(acc.plan.fee);
 
-            // A. Check for Specific Charges/Discounts in this month history
-            if(acc.charges) {
-                acc.charges.forEach(c => {
-                    if(c.date.startsWith(monthStr)) monthlyBill += Number(c.amount);
-                });
-            }
-            if(acc.discounts) {
-                acc.discounts.forEach(d => {
-                    if(d.date.startsWith(monthStr)) monthlyBill -= Number(d.amount);
-                });
-            }
+        // B. Add Charges for this specific month
+        acc.charges.forEach(c => {
+            if(c.date && c.date.startsWith(monthStr)) monthlyBill += Number(c.amount);
+        });
 
-            // B. POINT SYSTEM LOGIC (Discounts based on loyalty)
-            // We check if they had points *before* this month's bill generated
-            if (acc.points.advance >= 12) {
-                monthlyBill = 0; // Free Month
-                acc.points.advance = 0; // Reset
-            } else if (acc.points.ontime >= 12) {
-                monthlyBill = monthlyBill / 2; // 50% Off
-                acc.points.ontime = 0; // Reset
-            }
+        // C. Deduct Discounts
+        acc.discounts.forEach(d => {
+            if(d.date && d.date.startsWith(monthStr)) monthlyBill -= Number(d.amount);
+        });
 
-            // Add to Total Obligation
-            totalObligation += monthlyBill;
+        // D. Loyalty Reward Logic
+        if (acc.points.advance >= 12) {
+            monthlyBill = 0; acc.points.advance -= 12;
+        } else if (acc.points.ontime >= 12) {
+            monthlyBill = monthlyBill / 2; acc.points.ontime -= 12;
+        }
 
-            // C. REBUILD POINTS FOR NEXT MONTH
-            // Find if a payment covered this specific month (Paid on or before 20th)
-            const paymentsThisMonth = sortedPayments.filter(p => p.date.startsWith(monthStr));
-            let paidOnTime = false;
-            
-            paymentsThisMonth.forEach(p => {
-                const pDate = new Date(p.date);
-                if (pDate.getDate() <= FIXED_BILLING_DAY) paidOnTime = true; 
-            });
+        // E. Add to Debt
+        totalObligations += monthlyBill;
 
-            // Only award points if the bill was actually paid (Total Paid >= Total Obligation so far)
-            if (totalPaid >= totalObligation) {
-                if (paidOnTime) acc.points.ontime++;
-                else acc.points.advance++; // Late/Advance bucket
+        // F. Point Gaining Logic (Past/Present only)
+        if (cursorDate <= today) {
+            if (totalCashIn >= totalObligations) {
+                if ((totalCashIn - totalObligations) >= acc.plan.fee) {
+                    acc.points.advance++;
+                } else {
+                    acc.points.ontime++;
+                }
             } else {
-                // If they are behind on payments, they don't get points
-                // Optionally: acc.points.lost++;
+                if (today.getDate() > FIXED_BILLING_DAY) {
+                    acc.points.lost++;
+                }
             }
         }
-        
-        // Move to next month
         cursorDate.setMonth(cursorDate.getMonth() + 1);
     }
 
-    // 6. Final Calculation
-    // acc.excessLackingBalance represents the NET WALLET.
-    // Negative = They Owe Money (Arrears). Positive = Advance Payment.
-    acc.excessLackingBalance = totalPaid - totalObligation;
-
-    // 7. Update Next Due Date (Next Month 20th)
+    // --- NEW LOGIC: DEFAULT BALANCE 0 IF NO PAYMENT ---
+    acc.excessLackingBalance = totalCashIn - totalObligations;
+    
+    // If no payments have ever been made, and the resulting balance is negative (debt), 
+    // visually force it to 0 for a cleaner "Start" look, 
+    // UNLESS the account is older than 30 days (then show the debt).
+    if (acc.payments.length === 0) {
+         const accountAgeMs = new Date() - new Date(acc.createdAt);
+         const daysOld = accountAgeMs / (1000 * 60 * 60 * 24);
+         
+         // If account is new (less than 25 days) and hasn't paid, show 0 instead of negative
+         if(daysOld < 25 && acc.excessLackingBalance < 0) {
+             acc.excessLackingBalance = 0;
+         }
+    }
+    
+    // 7. Auto-update Next Due
     acc.nextDue = getNextBillingCycleDueDate();
 }
 
@@ -3042,7 +3086,13 @@ document.getElementById('dashBtnPaymentLogs').onclick = () => {
 
 // --- MODAL CLOSURES (All of them) ---
 document.getElementById('closeAccountManager').onclick = () => { modalAccountManagerBackdrop.style.display = 'none'; clearActiveNav(); };
-document.getElementById('btnCloseAccount').onclick = ()=>{ modalAccountBackdrop.style.display='none'; activeAccountIndex=null; saveAccounts(); renderAccounts(); };
+document.getElementById('btnCloseAccount').onclick = () => { 
+    modalAccountBackdrop.style.display = 'none'; 
+    activeAccountIndex = null; // Important: Reset index
+    saveAccounts(); 
+    renderAccounts(); 
+};
+
 document.getElementById('closeQuickPay').onclick = ()=> modalQuickPayBackdrop.style.display='none';
 document.getElementById('closePay').onclick = ()=> modalPayBackdrop.style.display='none';
 document.getElementById('closeLiquidation').onclick = ()=> modalLiquidationBackdrop.style.display='none';
@@ -3078,48 +3128,38 @@ function openAccount(idx){
   document.getElementById('accLostPoints').textContent = a.points.lost;
   document.getElementById('accNextDue').textContent = new Date(a.nextDue).toLocaleDateString();
 
-    // --- FIND THIS SECTION IN openAccount() ---
   const balanceEl = document.getElementById('accBalanceAmount');
-  
-  // --- REPLACE WITH THIS ---
-  const bal = a.excessLackingBalance;
-  if (bal < 0) {
-      // Negative means they OWE money
-      balanceEl.textContent = `Arrears: ₱${Math.abs(bal).toFixed(2)}`;
-      balanceEl.style.color = 'red';
-      balanceEl.parentElement.querySelector('div:first-child').textContent = "Total Amount Due";
-  } else if (bal > 0) {
-      // Positive means they have ADVANCE
-      balanceEl.textContent = `Wallet: ₱${bal.toFixed(2)}`;
-      balanceEl.style.color = 'var(--accent-2)'; // Gold balanceEl.parentElement.querySelector('div:first-child').textContent = "Excess Credit";
-  } else {
-      balanceEl.textContent = `₱0.00`;
-      balanceEl.style.color = 'var(--text)';
-      balanceEl.parentElement.querySelector('div:first-child').textContent = "Current Balance";
-  }
+  balanceEl.textContent = `₱${a.excessLackingBalance.toFixed(2)}`;
+  balanceEl.style.color = a.excessLackingBalance >= 0 ? 'var(--accent-2)' : 'red';
+  balanceEl.style.textShadow = a.excessLackingBalance >= 0 ? 'var(--glow)' : '0 0 3px rgba(255, 0, 0, 0.3)';
 
-
-    // --- START NEW TRANSACTION TABLE LOGIC ---
+    /* =========================================
+   STEP 2: NEW TRACKING SYSTEM UI (Copy inside openAccount function)
+   ========================================= */
+   
+  // --- START NEW TRANSACTION TABLE LOGIC (FIXED) ---
   const paymentsTbody = document.getElementById('paymentsTbody');
   paymentsTbody.innerHTML = '';
 
-  // 1. Create a merged list of all transactions
+  // 1. Create a merged list of all transactions (Payments + Charges + Discounts)
   let allTransactions = [];
 
-  // Add Payments
-  a.payments.forEach((p, i) => {
-      allTransactions.push({ 
-          type: 'payment', 
-          date: p.date, 
-          amount: p.amount, 
-          note: p.note, 
-          ref: p.referenceNumber, 
-          originalIndex: i, // Keep track of original index for deletion
-          obj: p 
+  // FIX: Changed 'acc' to 'a' here
+  if(a.payments){
+      a.payments.forEach((p, i) => {
+          allTransactions.push({ 
+              type: 'payment', 
+              date: p.date, 
+              amount: p.amount, 
+              note: p.note, 
+              ref: p.referenceNumber, 
+              originalIndex: i, 
+              obj: p 
+          });
       });
-  });
+  }
 
-  // Add Charges (Hardware, Labor, Reconnection)
+  // FIX: Changed 'acc' to 'a' here
   if(a.charges) {
       a.charges.forEach((c, i) => {
           allTransactions.push({ 
@@ -3133,7 +3173,7 @@ function openAccount(idx){
       });
   }
 
-  // Add Discounts
+  // FIX: Changed 'acc' to 'a' here
   if(a.discounts) {
       a.discounts.forEach((d, i) => {
           allTransactions.push({ 
@@ -3153,49 +3193,52 @@ function openAccount(idx){
   // 3. Render the Unified Table
   allTransactions.forEach((t) => {
       const tr = document.createElement('tr');
-      tr.className = 'txn-row'; // The box style
       
       let amountDisplay = '';
       let typeLabel = '';
-      let rowClass = '';
+      let colorStyle = '';
+      let statusTag = ''; // NEW: Holds Advance/Ontime text
 
       // Determine Styles based on Type
       if(t.type === 'payment') {
-          rowClass = 'txn-positive';
-          typeLabel = '<span class="badge" style="background:var(--accent);">Payment</span>';
+          typeLabel = '<span class="badge" style="background:var(--accent);">PAYMENT</span>';
           amountDisplay = `₱${Number(t.amount).toFixed(2)}`;
+          colorStyle = 'font-weight:bold; color: var(--text);';
+
+          // --- NEW: Calculate Payment Timing Status ---
+          const pDate = new Date(t.date);
+          const day = pDate.getDate();
+          
+          if (day < 20) {
+              statusTag = '<span class="badge" style="background:#2e7d32; font-size:9px; margin-left:5px;">ADVANCE</span>';
+          } else if (day === 20) {
+              statusTag = '<span class="badge" style="background:var(--accent-2); font-size:9px; margin-left:5px;">ON-TIME</span>';
+          } else if (day > 20 && day <= 25) {
+              statusTag = '<span class="badge" style="background:#ff9800; font-size:9px; margin-left:5px;">PENALTY</span>';
+          } else if (day >= 26) {
+               statusTag = '<span class="badge" style="background:#d32f2f; font-size:9px; margin-left:5px;">RECONNECT</span>';
+          }
       } 
       else if(t.type === 'discount') {
-          rowClass = 'txn-positive';
-          typeLabel = '<span class="badge" style="background:var(--toast-success);">Discount</span>';
-          amountDisplay = `+ ₱${Number(t.amount).toFixed(2)}`; // Plus means good for client
+          typeLabel = '<span class="badge" style="background:green;">DISCOUNT</span>';
+          amountDisplay = `+ ₱${Number(t.amount).toFixed(2)}`; 
+          colorStyle = 'color: green;';
       } 
       else if(t.type === 'charge') {
-          rowClass = 'txn-negative';
-          typeLabel = '<span class="badge" style="background:var(--toast-error);">Charge</span>';
-          amountDisplay = `- ₱${Number(t.amount).toFixed(2)}`; // Minus means adds to debt
-      }
-
-      tr.classList.add(rowClass);
-
-      // Special column for Payment-specific details (Penalty/Balance)
-      let detailsCol = '';
-      if(t.type === 'payment') {
-          const p = t.obj;
-          detailsCol = `
-            ${p.surchargeApplied > 0 ? `<div style="color:red; font-size:11px;">+₱${p.surchargeApplied} Penalty</div>` : ''} 
-            
-          `;
-      } else {
-          detailsCol = `<span class="muted" style="font-size:11px;">${t.type.toUpperCase()} ADJUSTMENT</span>`;
+          typeLabel = '<span class="badge" style="background:red;">CHARGE</span>';
+          amountDisplay = `- ₱${Number(t.amount).toFixed(2)}`; 
+          colorStyle = 'color: red;';
       }
 
       tr.innerHTML = `
           <td>${new Date(t.date).toLocaleDateString()}</td>
-          <td>${typeLabel}<br><span style="font-size:10px;">${t.ref}</span></td>
-          <td style="font-weight:700; font-size:15px;">${amountDisplay}</td>
+          <td>
+            ${typeLabel} ${statusTag} <br>
+            <span style="font-size:10px; color:#888;">${t.ref}</span>
+          </td>
+          <td style="${colorStyle} font-size:15px;">${amountDisplay}</td>
           <td>${t.note}</td>
-          <td>${detailsCol}</td>
+          <td>${t.type === 'payment' ? (t.obj.billingMonth || '-') : '-'}</td>
           <td>${t.type === 'payment' ? '₱'+(t.obj.appliedTotal||t.amount).toFixed(2) : '-'}</td>
           <td class="no-print">
             <button class="small ghost" style="color:red; border-color:red;" 
@@ -3206,6 +3249,9 @@ function openAccount(idx){
       `;
       paymentsTbody.appendChild(tr);
   });
+
+
+
 
   // init calendar to this month
   const now = new Date();
@@ -3279,10 +3325,18 @@ document.getElementById('btnAddPayment').onclick = ()=>{
   const a = accounts[activeAccountIndex];
   document.getElementById('payAccName').textContent = `${a.accountNumber} — ${a.name}`;
   document.getElementById('payAmount').value = a.plan.fee;
-  document.getElementById('payDate').valueAsDate = new Date();
+  
+  const today = new Date();
+  document.getElementById('payDate').valueAsDate = today;
+  
+  // Set default month helper to today
+  const mStr = today.toISOString().slice(0, 7);
+  document.getElementById('payBillingMonthHelper').value = mStr;
+
   document.getElementById('payNote').value = '';
   modalPayBackdrop.style.display='flex';
 };
+
 document.getElementById('savePay').onclick = ()=>{
   const a = accounts[activeAccountIndex];
   const amt = Number(document.getElementById('payAmount').value);
@@ -3911,9 +3965,11 @@ function renderPaymentAnalysis() {
 
     const ctx = document.getElementById('paymentChart').getContext('2d');
 
-    if (paymentAnalysisChart) {
-        paymentAnalysisChart.destroy();
-    }
+    // Check if variable exists and is a valid Chart instance
+if (paymentAnalysisChart && typeof paymentAnalysisChart.destroy === 'function') {
+    paymentAnalysisChart.destroy();
+}
+
 
     const chartOptions = {
         responsive: true,
@@ -4059,115 +4115,152 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 
 /* =========================================
-   INVOICE GENERATION: PREVIOUS BALANCE LOGIC
+   STEP 2: REPLACE generateInvoiceHtml
    ========================================= */
 function generateInvoiceHtml(acc, isReminder = false) {
     const today = new Date();
+    const vatRate = invoiceSettings.vatRate || 0; 
     const permits = invoiceSettings.permits || [];
 
-    // 1. Determine "Current Billing Month"
-    // If it's a reminder, we look at the current month.
-    // If it's a receipt, we usually look at the month of the last payment.
-    let targetDate = new Date();
+    // 1. Setup Header Details
+    let mainRef = isReminder ? "BILLING" : "RECEIPT";
+    let mainDate = today.toLocaleDateString();
+    
+    // FILTER MONTH: 
+    // If Reminder: Show current month's charges (We want to bill them for NOW).
+    // If Receipt: Show charges based on the last payment date (What they just paid for).
+    let filterMonth = new Date().toISOString().slice(0, 7); 
+
+    let lastPayAmount = 0;
+    let topSectionHtml = "";
+    
     if (!isReminder && acc.payments.length > 0) {
-        targetDate = new Date(acc.payments[acc.payments.length - 1].date);
-    }
-    const filterMonth = targetDate.toISOString().slice(0, 7); // YYYY-MM
-    
-    // 2. Calculate CURRENT BILL Charges (Plan + Extras - Discounts)
-    let currentBillTotal = Number(acc.plan.fee);
-    let breakdownHtml = `<div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${acc.plan.fee.toFixed(2)}</span></div>`;
-    
-    // Charges for this specific month
-    if(acc.charges) {
-        acc.charges.forEach(c => {
-            if(c.date.startsWith(filterMonth)) {
-                currentBillTotal += Number(c.amount);
-                breakdownHtml += `<div class="therm-row" style="color:red;"><span>+ ${c.note}</span><span>₱${Number(c.amount).toFixed(2)}</span></div>`;
-            }
-        });
-    }
-    // Discounts for this specific month
-    if(acc.discounts) {
-        acc.discounts.forEach(d => {
-            if(d.date.startsWith(filterMonth)) {
-                currentBillTotal -= Number(d.amount);
-                breakdownHtml += `<div class="therm-row" style="color:green;"><span>- ${d.note}</span><span>(₱${Number(d.amount).toFixed(2)})</span></div>`;
-            }
-        });
-    }
+        const lastPay = acc.payments[acc.payments.length - 1];
+        mainDate = new Date(lastPay.date).toLocaleDateString();
+        mainRef = lastPay.referenceNumber || (lastPay.method === 'GCash' ? "GCASH-REF" : "CASH");
+        lastPayAmount = Number(lastPay.amount);
+        filterMonth = lastPay.date.slice(0, 7); // Lock charges to the payment month
 
-    // 3. ACCOUNTING LOGIC (The "Previous Balance" Calculation)
-    // acc.excessLackingBalance is the FINAL standing (All History).
-    // To find "Previous Balance", we take the Final Standing and remove the Current Bill and add back recent payments.
-    // Formula: PrevBal = (FinalBalance + CurrentBill) - RecentPayments
-    // *Note: Since FinalBalance is (Paid - Owed), Negative means Debt.
-    
-    // In simpler terms:
-    // Total Amount Due = (Previous Unpaid) + (Current Bill)
-    // We know Total Amount Due is roughly (-1 * acc.excessLackingBalance) if negative.
-    
-    // Let's calculate what they owed BEFORE this month started.
-    // Logic: Current Net Balance + Current Bill Amount - Payments made this month.
-    // If the result is negative, that was the previous debt.
-    
-    let paymentsThisMonth = 0;
-    acc.payments.forEach(p => {
-        if(p.date.startsWith(filterMonth)) paymentsThisMonth += Number(p.amount);
-    });
-
-    // We use the ledger balance. 
-    // Example: Ledger says -500 (Owe 500 total). Current Bill is 500. Payments 0.
-    // Previous Balance = -500 + 500 - 0 = 0. (Clean slate before this month).
-    // Example: Ledger says -1000. Current Bill 500. Payments 0.
-    // Previous Balance = -1000 + 500 = -500. (Owed 500 from last month).
-    
-    // Calculate raw previous balance
-    let rawPrevBalance = acc.excessLackingBalance + currentBillTotal - paymentsThisMonth;
-    
-    // Invert for display (Positive means Debt in billing statements usually, but we use explicit labels)
-    let prevBalanceRow = "";
-    
-    if (rawPrevBalance < -1) {
-        // Negative Raw means they owed money before
-        prevBalanceRow = `<div class="therm-row" style="color:red; font-weight:bold;"><span>PREVIOUS BALANCE (Arrears)</span><span>₱${Math.abs(rawPrevBalance).toFixed(2)}</span></div>`;
-    } else if (rawPrevBalance > 1) {
-        // Positive Raw means they had advanced payment
-        prevBalanceRow = `<div class="therm-row" style="color:green;"><span>LESS: ADVANCE PAYMENT</span><span>(₱${Math.abs(rawPrevBalance).toFixed(2)})</span></div>`;
-    }
-
-    // 4. LAST PAYMENT DISPLAY (For Receipt Mode)
-    let lastPayHtml = "";
-    if (!isReminder && acc.payments.length > 0) {
-        const lp = acc.payments[acc.payments.length - 1];
-        lastPayHtml = `
-            <div style="border: 2px solid #000; padding: 5px; margin: 10px 0; text-align:center;">
-                <div style="font-size:10px;">AMOUNT PAID NOW</div>
-                <div style="font-size:18px; font-weight:800;">₱${Number(lp.amount).toFixed(2)}</div>
-                <div style="font-size:10px;">Ref: ${lp.referenceNumber}</div>
+        topSectionHtml = `
+            <div class="therm-row" style="font-weight:bold; font-size:14px; border-bottom: 2px solid #000; padding-bottom:5px; margin-bottom:5px;">
+                <span>AMOUNT PAID NOW</span>
+                <span>₱${lastPayAmount.toFixed(2)}</span>
             </div>
         `;
     }
 
-    // 5. TOTAL DUE CALCULATION
-    // If Ledger is negative, that is the Total Amount Due.
-    // If Ledger is positive, Total Due is 0 (and they have excess).
-    let totalDue = 0;
-    let totalLabel = "TOTAL AMOUNT DUE";
-    let totalColor = "red";
-    
-    if (acc.excessLackingBalance < 0) {
-        totalDue = Math.abs(acc.excessLackingBalance);
-    } else {
-        totalDue = 0;
-        totalLabel = "OVERPAYMENT (CREDIT)";
-        totalColor = "green";
-        // If positive, we display the excess amount
-        if (acc.excessLackingBalance > 0) totalDue = acc.excessLackingBalance;
+    // --- SECTION B: CURRENT BILL CALCULATION ---
+    let invoiceRows = ""; 
+    let currentMonthSubtotal = 0;
+
+    // 1. BASE PLAN
+    currentMonthSubtotal += acc.plan.fee;
+    invoiceRows += `<div class="therm-row"><span>Monthly Plan (${acc.plan.name})</span><span>₱${acc.plan.fee.toFixed(2)}</span></div>`;
+
+    // 2. ADD CHARGES (Strictly for filterMonth)
+    if(acc.charges) {
+        acc.charges.forEach(c => {
+            if(c.date.startsWith(filterMonth)) {
+                currentMonthSubtotal += c.amount;
+                invoiceRows += `<div class="therm-row" style="color:var(--toast-error);">
+                    <span>+ ${c.note || 'Extra Charge'}</span>
+                    <span>₱${c.amount.toFixed(2)}</span>
+                </div>`;
+            }
+        });
     }
 
-    // --- HTML CONSTRUCTION ---
-    const nextDueStr = new Date(acc.nextDue).toLocaleDateString();
+    // 3. DEDUCT DISCOUNTS (Strictly for filterMonth)
+    if(acc.discounts) {
+        acc.discounts.forEach(d => {
+            if(d.date.startsWith(filterMonth)) {
+                currentMonthSubtotal -= d.amount;
+                invoiceRows += `<div class="therm-row" style="color:var(--toast-success);">
+                    <span>- ${d.note || 'Discount'}</span>
+                    <span>(₱${d.amount.toFixed(2)})</span>
+                </div>`;
+            }
+        });
+    }
+
+    // Show Subtotal Line
+    invoiceRows += `
+    <div class="therm-row" style="border-top: 1px dashed #aaa; margin-top: 4px; padding-top: 4px; font-weight:bold;">
+        <span>SUBTOTAL (This Month)</span>
+        <span>₱${currentMonthSubtotal.toFixed(2)}</span>
+    </div>`;
+
+
+    // --- SECTION C: SUKLI (EXCESS) & KULANG (LACKING) LOGIC ---
+    
+    // We calculate the Total Due based on the account's running balance.
+    // Since excessLackingBalance is (Cash In - Obligation), 
+    // A Negative Balance means they OWE money.
+    // A Positive Balance means they have Excess.
+    
+    let totalAmountDue = 0;
+    
+    // Since recomputePointsAndBalance includes "This Month" in the calculation:
+    if (acc.excessLackingBalance < 0) {
+        // Example: -600 balance means they owe 600 total.
+        totalAmountDue = Math.abs(acc.excessLackingBalance);
+    } else {
+        // Example: +100 balance means they have 100 excess. They owe nothing right now.
+        // However, for the Invoice, usually we show the Bill, less the advance.
+        // If they have 100 excess, and bill is 500, the System Balance would be -400 (Owe 400).
+        // If the balance is strictly Positive, it means they paid MORE than the bill already.
+        totalAmountDue = 0; 
+    }
+
+    // Calculate Previous Balance Difference
+    // PrevBalance = (The Total Amount they Owe) - (This Month's Bill)
+    let previousBalance = totalAmountDue - currentMonthSubtotal;
+
+    // SCENARIO 1: SUKLI (Excess)
+    // If Total Due (400) - Current Bill (500) = -100. 
+    // This means 100 was deducted from previous excess.
+    if (previousBalance < -1) { // Tolerance for rounding
+        invoiceRows += `<div class="therm-row" style="color:green; font-size:11px; margin-top:5px;">
+            <span>- LESS: ADVANCE (Sukli)</span>
+            <span>(₱${Math.abs(previousBalance).toFixed(2)})</span>
+        </div>`;
+    } 
+    // SCENARIO 2: KULANG (Lacking)
+    // If Total Due (600) - Current Bill (500) = +100.
+    // This means 100 is added from previous unpaid bills.
+    else if (previousBalance > 1) { 
+        invoiceRows += `<div class="therm-row" style="color:red; font-size:11px; margin-top:5px;">
+            <span>+ PREV. BALANCE (Kulang)</span>
+            <span>₱${previousBalance.toFixed(2)}</span>
+        </div>`;
+    }
+
+
+    // --- SECTION D: GRAND TOTAL ---
+    let grandTotalLabel = isReminder ? "TOTAL AMOUNT DUE" : "REMAINING BALANCE";
+    let grandTotalValue = totalAmountDue;
+    let grandTotalColor = "#000";
+
+    // Special Case: If they actually have pure Excess (Paid 600 for 500 bill -> Balance +100)
+    // In this case, recomputePointsAndBalance makes balance +100.
+    // The Invoice logic above sets totalAmountDue to 0.
+    // We want to show "Excess Fund: 100".
+    if (acc.excessLackingBalance > 0) {
+        grandTotalLabel = "EXCESS FUND (Sukli)";
+        grandTotalValue = acc.excessLackingBalance;
+        grandTotalColor = "green";
+    }
+
+    // --- PERMITS DISPLAY ---
+    let permitHtml = "";
+    if (permits.length > 0) {
+        permitHtml = `<div class="inv-permits">`;
+        permits.forEach(p => { permitHtml += `<span>${p.name}: ${p.number}</span> `; });
+        permitHtml += `</div>`;
+    }
+
+    const nextBillMonth = new Date(today.getFullYear(), today.getMonth() + 1, FIXED_BILLING_DAY);
+    const nextBillString = nextBillMonth.toLocaleDateString(undefined, {month:'long', day:'numeric', year:'numeric'});
 
     return `
     <div id="invoiceCapture" class="invoice-thermal">
@@ -4176,46 +4269,61 @@ function generateInvoiceHtml(acc, isReminder = false) {
             <div class="therm-title">N'RTECH INTERNET</div>
             <div style="font-size:11px;">San Vicente, Tubod, LDN</div>
             <div style="font-size:11px;">0946-895-3577</div>
+            ${permitHtml}
         </div>
 
         <div class="therm-info">
-            <div class="therm-row"><span>Date:</span> <span>${today.toLocaleDateString()}</span></div>
+            <div class="therm-row"><span>Date:</span> <span>${mainDate}</span></div>
+            <div class="therm-row"><span>Ref #:</span> <b>${mainRef}</b></div>
+            <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
-            <div class="therm-row"><span>Bill Month:</span> <span>${filterMonth}</span></div>
         </div>
 
         <div class="therm-divider"></div>
-        <div style="text-align:center; font-weight:bold; margin-bottom:5px;">
-            ${isReminder ? 'BILLING STATEMENT' : 'PAYMENT RECEIPT'}
+        <div style="font-weight:bold; text-align:center; margin: 5px 0;">
+            ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
+        </div>
+        <div style="text-align:center; font-size:10px; margin-bottom:10px;">
+            Billing Month: ${filterMonth}
         </div>
 
-        ${lastPayHtml}
-
-        <div style="background: #f9f9f9; padding: 5px; border-radius: 4px;">
-            ${prevBalanceRow}
-            <div class="therm-divider" style="margin: 4px 0; opacity: 0.5;"></div>
-            ${breakdownHtml}
-        </div>
-
-        <div class="therm-divider"></div>
-
-        <div class="therm-row" style="font-size: 16px; font-weight: 800; color:${totalColor}; margin-top:10px;">
-            <span>${totalLabel}</span>
-            <span>₱${totalDue.toFixed(2)}</span>
+        ${topSectionHtml}
+        
+        <div style="margin-top:10px;">
+            ${invoiceRows}
         </div>
         
-        <div style="margin-top:15px; text-align:center; border: 1px dashed #aaa; padding: 5px;">
-            <div style="font-size:10px;">NEXT PAYMENT DUE</div>
-            <div style="font-weight:bold; font-size:14px;">${nextDueStr}</div>
+        <div class="inv-subtotal-section">
+            <div class="therm-row" style="font-size: 16px; font-weight: 800; margin-top:5px; color:${grandTotalColor}; border-top: 2px solid #000; padding-top: 5px;">
+                <span>${grandTotalLabel}:</span>
+                <span>₱${grandTotalValue.toFixed(2)}</span>
+            </div>
+        </div>
+        
+        <div style="margin-top:10px; font-size:12px; text-align:center; padding:5px; border:1px solid #000;">
+            <strong>NEXT DUE DATE:</strong><br>
+            <span style="font-size:14px; font-weight:bold;">${nextBillString}</span>
+        </div>
+
+        <div class="therm-points-box">
+            <strong>LOYALTY POINTS</strong><br>
+            <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; margin-top:2px;">
+                <div>Adv<br><b>${acc.points.advance}</b></div>
+                <div>OnTime<br><b>${acc.points.ontime}</b></div>
+                <div>Lost<br><b>${acc.points.lost}</b></div>
+            </div>
         </div>
 
         <div class="therm-footer">
-            <i>This is a computer generated document.</i>
+            <i>${isReminder ? 'Please pay before disconnection.' : 'Thank you for your business!'}</i>
         </div>
     </div>
     `;
 }
+
+
+
 
 
 
@@ -4302,9 +4410,10 @@ function checkDailySystemAutomations() {
     let dataChanged = false;
 
     accounts.forEach(acc => {
-        const nextDueDate = new Date(acc.nextDue);
+        // Fix: Convert nextDue string to Date object for comparison
+        const nextDueDate = new Date(acc.nextDue + 'T00:00:00'); 
         
-        // Only run logic if account is strictly overdue (Today > Due Date)
+        // Only run if today is actually past the due date
         if (today > nextDueDate) {
             
             // --- LATE PAYER (21st - 25th) ---
@@ -5538,9 +5647,78 @@ document.getElementById('btnQuickPay').onclick = ()=>{
   showToast(`Paid ₱${amt} for ${formattedMonth}`, 'success');
 };
 
+/* =========================================
+   STEP 3: NEW UNIFIED DELETE FUNCTION
+   ========================================= */
+async function deleteTransaction(accIdx, type, itemIdx) {
+    const shouldDelete = await customConfirm('Are you sure you want to delete this record? Calculation will update.');
+    if (!shouldDelete) return;
+
+    const acc = accounts[accIdx];
+
+    // Delete based on what type it is
+    if(type === 'payment') {
+        acc.payments.splice(itemIdx, 1);
+    } 
+    else if(type === 'charge') {
+        acc.charges.splice(itemIdx, 1);
+    } 
+    else if(type === 'discount') {
+        acc.discounts.splice(itemIdx, 1);
+    }
+
+    // Recalculate Logic immediately
+    recomputePointsAndBalance(acc);
+    saveAccounts();
+    renderAccounts();
+    openAccount(accIdx); // Refresh view
+    showToast(`${type.toUpperCase()} deleted. Balance updated.`, 'success');
+}
+
+/* =========================
+   NEW: DATE HELPER LOGIC
+   ========================= */
+function setPaymentDate(mode, type) {
+    // Determine which input fields to use based on mode ('quick' or 'detailed')
+    const monthInputId = mode === 'quick' ? 'quickBillingMonth' : 'payBillingMonthHelper';
+    const dateInputId = mode === 'quick' ? 'quickDate' : 'payDate';
+    
+    // Get the selected Month (YYYY-MM). Default to current month if empty.
+    let monthVal = document.getElementById(monthInputId).value;
+    if (!monthVal) {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        monthVal = `${y}-${m}`;
+        document.getElementById(monthInputId).value = monthVal; // Set it visually
+    }
+
+    const [year, month] = monthVal.split('-');
+    let day = 20; // Default
+
+    // Logic for Day Selection
+    if (type === 'advance') {
+        day = 15; // Middle of 1-19
+    } else if (type === 'ontime') {
+        day = 20; // Fixed 20th
+    } else if (type === 'penalty') {
+        day = 23; // Middle of 21-25
+    } else if (type === 'reconnect') {
+        day = 26; // Start of Reconnection
+        // If current real date is later than 26th in the same month, use today
+        const today = new Date();
+        if (today.getDate() > 26 && today.getMonth() + 1 == month && today.getFullYear() == year) {
+            day = today.getDate();
+        }
+    }
+
+    // Format YYYY-MM-DD
+    const finalDate = `${year}-${month}-${String(day).padStart(2, '0')}`;
+    document.getElementById(dateInputId).value = finalDate;
+    
+    showToast(`Date set to ${type.toUpperCase()} (${finalDate})`, 'info');
+}
 
 </script>
 </body>
-</html> 
-
-
+</html>
