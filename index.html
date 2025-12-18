@@ -2995,14 +2995,14 @@ function recomputePointsAndBalance(acc){
   if(acc.charges) acc.charges.forEach(c => totalDebts += Number(c.amount));
   if(acc.discounts) acc.discounts.forEach(d => totalDebts -= Number(d.amount));
 
-  // 2. Calculate Total Cash Paid & Logic for Points (Top-up supported)
+  // 2. Calculate Total Cash Paid & Points Logic (UPDATED)
   let totalPaid = 0;
   
-  // We need a "Running Wallet" to track partial payments accumulating to a full month
+  // We use a "Running Wallet" to handle partial payments + excess
   let runningWallet = 0; 
-  
-  // Sort payments by date to ensure the "Top-up" applies to the correct timeline
-  // We create a copy [...acc.payments] to avoid mutating the original order permanently if not desired
+
+  // Sort payments by date to ensure the history flows correctly
+  // (Oldest payment first)
   const sortedPayments = [...acc.payments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   sortedPayments.forEach(p => {
@@ -3012,25 +3012,25 @@ function recomputePointsAndBalance(acc){
       
       const d = new Date(p.date + 'T00:00:00').getDate();
 
-      // Penalty Point Logic: 
-      // This applies to the ACT of paying late, regardless of amount
-      if(d >= 21 && d <= 25) acc.points.lost++;
+      // LOGIC CHANGE: 
+      // While the wallet has enough money to pay for a full monthly plan...
+      // This handles:
+      // A. Partial payments summing up (e.g., 100 excess + 400 new = 500 Paid)
+      // B. Advance payments (e.g., 1000 paid = 2 loops of 500)
       
-      // PLAN FULFILLMENT LOGIC (Supports Excess/Top-up)
-      // While the money in the wallet is enough to pay for a plan...
       while(runningWallet >= acc.plan.fee) {
-          
-          // Deduct the plan fee from the wallet (One month paid!)
+          // Deduct the cost of 1 month
           runningWallet -= acc.plan.fee;
 
-          // Award Point based on the DATE of the payment that completed this month
-          // If they paid 200 on the 1st, and 299 on the 20th, this block runs on the 20th.
+          // Award Point based on the date of the payment that completed the sum
           if(d <= 19) {
               acc.points.advance++;
           } else if(d === 20) {
               acc.points.ontime++;
+          } else if(d >= 21 && d <= 25) {
+              acc.points.lost++; 
+              // Note: This counts as a "Paid" month, but marks it as a "Lost Point" (Late)
           }
-          // If completed after the 20th, no positive point is awarded (standard logic)
       }
   });
 
@@ -3041,6 +3041,7 @@ function recomputePointsAndBalance(acc){
   let monthsFullyPaid = Math.floor(netCash / acc.plan.fee);
   
   // The balance is the remainder. 
+  // Example: Paid 1000. Plan 499. 1000 / 499 = 2 months. Remainder = 2.
   let remainder = netCash % acc.plan.fee;
   
   // If netCash is negative (Lacking), the remainder logic works differently
@@ -3050,7 +3051,7 @@ function recomputePointsAndBalance(acc){
       acc.excessLackingBalance = remainder; // Shows 2.00
   }
 
-  // Determine Status based on coverage
+  // Determine Next Due Date based on coverage
   const billingDay = acc.billingDay || 20;
   const start = new Date(acc.createdAt || new Date());
   
@@ -3059,39 +3060,39 @@ function recomputePointsAndBalance(acc){
   nextDueMonth.setMonth(start.getMonth() + monthsFullyPaid);
   nextDueMonth.setDate(billingDay);
   
-  // Update Next Due Date Logic
-  if(acc.payments.length > 0) {
-      // We rely on the sorted order or original order to find the "Latest" payment date context
-      // But purely for Next Due, we calculate from the TOTAL months covered
-      // Base calculation on Current Date vs Coverage
-      const today = new Date();
-      const coverageDate = new Date(today.getFullYear(), today.getMonth(), billingDay);
+  // If we have payments, update next due accurately based on the last transaction date + coverage
+  if(sortedPayments.length > 0) {
+      const lastPay = sortedPayments[sortedPayments.length-1];
+      const pDate = new Date(lastPay.date);
       
-      // If we have paid enough to cover X months, project that date
-      // This is a simplified projection for display. 
-      // For strict billing, usually: Due Date = Start Date + (MonthsPaid * 1 Month)
+      // Calculate how many months the total net cash covers
+      // If user paid for 5 months total since start, next due is 5 months from start (simplified)
+      // Or simply:
       
-      let baseDue = new Date(acc.createdAt);
-      // If created date is invalid, use today
-      if(isNaN(baseDue)) baseDue = new Date();
-      
-      baseDue.setDate(billingDay); // Align to billing day
-      
-      // Add months paid
-      baseDue.setMonth(baseDue.getMonth() + monthsFullyPaid);
-      
-      // If the calculated due date is in the past (e.g., they paid for last month but not this one),
-      // we need to show the upcoming due date.
-      if (baseDue < new Date()) {
-           // Standard "Next Billing Cycle" logic handled by global helper if strictly overdue
-           // But here we want to show exactly when their money runs out.
-           // If balance < 0, it means they are overdue NOW.
+      const now = new Date();
+      // If coverage is in future
+      if (monthsFullyPaid > 0) {
+           // Logic: Next due is simply the billing day of the month AFTER the covered period
+           // This is complex to perfect without a full billing engine, but for this display:
+           const futureDate = new Date();
+           // We approximate: Current Date + (Balance / Fee) worth of time? 
+           // Better: Use the billing cycle logic provided in previous steps.
+           
+           // Reuse existing working logic for Next Due:
+           if(Number(lastPay.amount) > acc.plan.fee) {
+              const covered = Math.floor(Number(lastPay.amount)/acc.plan.fee);
+              pDate.setMonth(pDate.getMonth() + covered);
+           } else {
+              pDate.setMonth(pDate.getMonth() + 1);
+           }
+           pDate.setDate(billingDay);
+           acc.nextDue = pDate.toISOString().slice(0,10);
+      } else {
+          // Default logic
+           acc.nextDue = computeNextDue(lastPay.date, billingDay);
       }
-      
-      acc.nextDue = baseDue.toISOString().slice(0,10);
   }
 }
-
 
 
 
