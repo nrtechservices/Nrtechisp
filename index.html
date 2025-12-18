@@ -984,6 +984,29 @@
     .invoice-clean { display: none; } 
 }
 
+
+/* --- NETWORK AGREEMENT DOCUMENT STYLE --- */
+.legal-paper {
+    background: white;
+    padding: 40px;
+    font-family: 'Times New Roman', Times, serif;
+    color: #000;
+    line-height: 1.6;
+    border: 1px solid #ccc;
+    box-shadow: 0 0 15px rgba(0,0,0,0.1);
+    max-width: 800px;
+    margin: 0 auto;
+}
+.legal-header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #000; padding-bottom: 20px; }
+.legal-title { font-size: 24px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
+.legal-logo { height: 60px; margin-bottom: 10px; }
+.legal-body { font-size: 14px; text-align: justify; }
+.legal-section { margin-bottom: 15px; }
+.legal-section h4 { margin: 0 0 5px 0; font-size: 16px; text-decoration: underline; }
+.legal-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+.legal-sign-area { margin-top: 50px; display: flex; justify-content: space-between; gap: 50px; }
+.sign-box { border-top: 1px solid #000; width: 45%; text-align: center; padding-top: 10px; font-weight: bold; }
+
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -1243,7 +1266,8 @@
             <h4 style="margin:0; color: var(--accent-2);">Payment Records</h4>
             <button id="btnExportPayments" class="no-print small ghost" style="font-size: 11px;">📂 Export CSV</button>
         </div>
-
+        
+  
         <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
             <button id="btnAddPayment" class="no-print small" style="background: var(--accent); color: white;">
                 💲 Add Payment
@@ -1269,6 +1293,10 @@
             <button id="btnSendMessenger" class="no-print small ghost" style="white-space: nowrap;">
                 💬 Messenger
             </button>
+            <button id="btnNetworkAgreement" class="no-print small ghost" style="white-space: nowrap; color: var(--accent-2); border-color: var(--accent-2);">
+    ⚖️ Agreement
+</button>
+
         </div>
 
       </div>
@@ -1857,6 +1885,23 @@
       <div style="text-align:right;margin-top:16px"><button id="btnSaveDiscount">Apply Discount</button></div>
     </div>
   </div>
+</div>
+
+<div class="modal-backdrop" id="modalAgreementBackdrop">
+    <div class="modal" style="width: min(95%, 850px); max-height: 95vh;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+            <h3 style="color: var(--accent-2);">📄 Service Agreement</h3>
+            <div style="display:flex; gap:10px;">
+                <button id="btnPrintAgreement" class="small ghost">🖨️ Print</button>
+                <button id="btnPngAgreement" class="small ghost">⬇️ PNG</button>
+                <button id="closeAgreement" class="no-print ghost small">Close</button>
+            </div>
+        </div>
+        <div style="overflow-y: auto; max-height: 80vh; background: #555; padding: 20px;">
+            <div id="agreementContent" class="legal-paper">
+                </div>
+        </div>
+    </div>
 </div>
 
 
@@ -3919,11 +3964,11 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 
 /* =========================
-   UPDATED INVOICE GENERATOR
+   UPDATED INVOICE GENERATOR (WITH GCASH & POINTS BREAKDOWN)
    ========================= */
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
     
-    // 1. Determine Payment to show
+    // 1. Setup Data
     let targetPayment = null;
     if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
         targetPayment = acc.payments[specificPaymentIndex];
@@ -3934,89 +3979,63 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     const today = new Date();
     const planFee = acc.plan.fee;
     
-    // 2. Setup Variables
-    let displayDate = today.toLocaleDateString();
-    let refNum = "BILLING";
-    let subTitle = isReminder ? "BILLING REMINDER" : "OFFICIAL RECEIPT";
-    let coverageText = "";
-    let pointsEarnedText = "";
-
-    // --- LOGIC FOR RECEIPT VS REMINDER ---
-    if(isReminder) {
-        // REMINDER LOGIC: Based on Next Unpaid Month
-        const dueDt = new Date(acc.nextDue);
-        // Format: "October 2023"
-        const dueMonthStr = dueDt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        coverageText = `Bill for: ${dueMonthStr}`;
-        displayDate = dueDt.toLocaleDateString(); // Invoice date is the Due Date
-    } else if (targetPayment) {
-        // RECEIPT LOGIC: Based on Payment
-        displayDate = new Date(targetPayment.date).toLocaleDateString();
-        refNum = targetPayment.referenceNumber || "REF";
-        
-        // Calculate Months Covered
-        // Use saved billingMonth if available, otherwise use transaction date
-        const startMonth = targetPayment.billingMonth || targetPayment.date;
-        const monthsList = getCoverageMonths(startMonth, targetPayment.amount, planFee);
-        coverageText = `Coverage: ${monthsList}`;
-
-        // Calculate Points Gained (Estimate)
-        const monthsCount = Math.floor(targetPayment.amount / planFee);
-        if(monthsCount > 0) {
-            // Simple logic: If paying in advance (more than 1 month), assume advance points
-            // Adjust logic based on your specific rules if needed
-            const pointType = monthsCount > 1 ? "Advance" : "On-Time"; 
-            pointsEarnedText = `(+${monthsCount} ${pointType} Points)`;
-        }
-    }
-
-    // 3. POINTS SUMMARY (Cleaned Up)
+    // 2. Dates & Reference
+    let displayDate = isReminder ? today.toLocaleDateString() : (targetPayment ? new Date(targetPayment.date).toLocaleDateString() : today.toLocaleDateString());
+    let refNum = isReminder ? "REMINDER" : (targetPayment ? (targetPayment.referenceNumber || "REF") : "BILLING");
+    
+    // 3. Loyalty Points (Only Advance, On-Time, Lost)
     const pAdv = acc.points.advance || 0;
     const pTime = acc.points.ontime || 0;
     const pLost = acc.points.lost || 0;
 
-    // 4. TRANSPARENT ITEMS (Charges/Discounts)
-    let extraItemsHtml = '';
-    let totalExtras = 0;
-    // (Logic remains same as before for finding monthly charges)
-    const contextDateStr = isReminder ? new Date(acc.nextDue).toISOString().slice(0, 7) : (targetPayment ? targetPayment.date.slice(0, 7) : "");
-    
-    if(acc.charges) acc.charges.forEach(c => {
-        if(c.date.startsWith(contextDateStr)) {
-            extraItemsHtml += `<div class="therm-row" style="color:var(--toast-error);"><span>[+] ${c.note}</span><span>₱${Number(c.amount).toFixed(2)}</span></div>`;
-            totalExtras += Number(c.amount);
-        }
-    });
-    if(acc.discounts) acc.discounts.forEach(d => {
-        if(d.date.startsWith(contextDateStr)) {
-            extraItemsHtml += `<div class="therm-row" style="color:var(--toast-success);"><span>[-] ${d.note}</span><span>-₱${Number(d.amount).toFixed(2)}</span></div>`;
-            totalExtras -= Number(d.amount);
-        }
-    });
-
-    // 5. CALCULATE TOTALS
+    // 4. Calculate Coverage & Amounts
     let amountDisplay = 0;
-    let balanceRowHtml = '';
-    
-    if(isReminder) {
-        const currentBalance = acc.excessLackingBalance; 
-        const nextBillAmount = planFee + totalExtras;
-        let grandTotal = nextBillAmount;
+    let mainDescription = `Internet Plan (${acc.plan.name})`;
+    let coverageText = "";
+    let niceNote = "";
 
-        if(currentBalance > 0) {
-            balanceRowHtml = `<div class="therm-row" style="color:var(--toast-success);"><span>Less: Wallet Balance</span><span>-₱${currentBalance.toFixed(2)}</span></div>`;
-            grandTotal = Math.max(0, nextBillAmount - currentBalance);
-        } else if (currentBalance < 0) {
-            balanceRowHtml = `<div class="therm-row" style="color:var(--toast-error);"><span>Plus: Past Due</span><span>₱${Math.abs(currentBalance).toFixed(2)}</span></div>`;
-            grandTotal = nextBillAmount + Math.abs(currentBalance);
-        }
-        amountDisplay = grandTotal;
-    } else {
+    // --- RECEIPT LOGIC ---
+    if (!isReminder && targetPayment) {
         amountDisplay = Number(targetPayment.amount);
+        
+        // Calculate Coverage (Feature #3)
+        const coverage = calculateMonthsCovered(targetPayment.date, amountDisplay, planFee);
+        coverageText = `<div style="font-size:10px; font-style:italic; margin-left: 10px;">Covered: ${coverage}</div>`;
+        niceNote = targetPayment.note || 'Payment Received. Thank you!';
+    } 
+    // --- REMINDER LOGIC (Feature #4) ---
+    else {
+        const balance = acc.excessLackingBalance;
+        // Determine the NEXT month after current coverage
+        // We use the Next Due Date to determine the upcoming bill month
+        const nextDueObj = new Date(acc.nextDue);
+        const nextBillMonth = nextDueObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        
+        mainDescription = `Bill for ${nextBillMonth}`;
+        
+        // Logic for Total Due
+        let totalDue = planFee;
+        let arrearsHtml = '';
+        
+        if (balance < 0) {
+            // They owe money (Arrears)
+            arrearsHtml = `<div class="therm-row" style="color:var(--toast-error);"><span>Unpaid Balance:</span><span>₱${Math.abs(balance).toFixed(2)}</span></div>`;
+            totalDue += Math.abs(balance);
+            niceNote = "Friendly Reminder: Please settle your unpaid balance to avoid service interruption.";
+        } else if (balance > 0) {
+            // They have credit
+            arrearsHtml = `<div class="therm-row" style="color:var(--toast-success);"><span>Less Wallet Balance:</span><span>-₱${balance.toFixed(2)}</span></div>`;
+            totalDue = Math.max(0, totalDue - balance);
+            niceNote = "You have excess balance applied to this bill.";
+        } else {
+             niceNote = "Please pay before the due date to maintain good standing.";
+        }
+        
+        amountDisplay = totalDue;
+        coverageText = arrearsHtml; // Inject arrears into the details area
     }
 
-    const footerMsg = invSettings.footer || (isReminder ? "Please pay before due date." : "Thank you for your payment!");
-
+    // 5. Generate HTML
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -4034,34 +4053,28 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         </div>
         
         <div class="therm-points-box">
-            <div style="font-weight:bold; margin-bottom:4px; border-bottom:1px solid #ddd;">LOYALTY POINTS</div>
-            <div style="display:flex; justify-content:space-between; font-size:11px;">
-                <span>Adv: <b>${pAdv}</b></span>
+            <div style="font-weight:bold; margin-bottom:2px;">LOYALTY STATUS</div>
+            <div style="display:flex; justify-content:space-between; font-size:10px; padding: 0 10px;">
+                <span>Advance: <b>${pAdv}</b></span>
                 <span>On-Time: <b>${pTime}</b></span>
-                <span style="color:red">Lost: <b>${pLost}</b></span>
+                <span>Lost: <b>${pLost}</b></span>
             </div>
         </div>
 
-        <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 4px; background:#f9f9f9;">
-            ${subTitle}
+        <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">
+            ${isReminder ? 'PAYMENT REMINDER' : 'OFFICIAL RECEIPT'}
         </div>
 
-        <div class="therm-row">
+        <div class="therm-row" style="border-bottom: 1px solid #ddd; padding-bottom:2px;">
             <span>Description</span>
             <span>Amount</span>
         </div>
         
-        <div class="therm-row">
-            <span>Internet Plan (${acc.plan.name})</span>
+        <div class="therm-row" style="margin-top: 5px;">
+            <span>${mainDescription}</span>
             <span>₱${planFee.toFixed(2)}</span>
         </div>
-        
-        <div style="font-size: 10px; color: #555; margin-bottom: 5px; font-style:italic;">
-            ${coverageText} ${!isReminder ? pointsEarnedText : ''}
-        </div>
-
-        ${extraItemsHtml}
-        ${balanceRowHtml}
+        ${coverageText}
 
         <div class="therm-divider"></div>
 
@@ -4070,25 +4083,18 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <span>₱${amountDisplay.toFixed(2)}</span>
         </div>
 
-        ${!isReminder ? `
-        <div style="margin-top:5px; font-size:11px; text-align:center;">
-            Note: ${targetPayment.note || 'Payment Received'}
-        </div>` : ''}
-
-        <div style="margin-top: 15px; border-top: 2px dashed #000; padding-top: 10px; text-align: center;">
-            <div style="font-weight: 800; margin-bottom: 5px;">PAY VIA GCASH</div>
-            <img src="gcash-qr.png" style="width: 100px; height: 100px; border: 2px solid #000;">
-            <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">0931-792-6807</div>
-            <div style="font-size: 10px;">NO***L JO*N R.</div>
+        <div style="margin-top:10px; font-size:11px; text-align:center; font-style:italic; border: 1px dashed #ccc; padding: 5px;">
+            "${niceNote}"
         </div>
 
         <div class="therm-footer">
             <br>
-            <i>${footerMsg}</i>
+            Thank you for choosing N'RTECH!
         </div>
     </div>
     `;
 }
+
 
 
 
@@ -4870,80 +4876,54 @@ document.getElementById('btnSaveDiscount').onclick = () => {
 };
 
 /* =========================================
-   FIXED: MOBILE INVOICE DOWNLOAD WITH CHOICE
+   FIXED: MOBILE INVOICE DOWNLOAD
    ========================================= */
 document.getElementById('btnDownloadInvoicePng').onclick = async () => {
     if (activeAccountIndex === null) return showToast('Select an account.', 'warning');
     const acc = accounts[activeAccountIndex];
 
-    // 1. ASK USER: Receipt or Reminder?
-    // We use customConfirm. True = OK (Reminder), False = Cancel (Receipt)
-    // We customize the text to make this clear.
+    // FEATURE 2: Button choice for Receipt or Reminder
     const isReminder = await customConfirm(
-        "Generate BILLING REMINDER (Total Due)?\n\nClick 'Proceed' for Reminder.\nClick 'Cancel' for Official Receipt.", 
-        "📄 Select Invoice Type"
+        "Click OK for BILLING REMINDER\nClick CANCEL for OFFICIAL RECEIPT", 
+        "⬇️ Download Option"
     );
-    
-    // Note: customConfirm returns TRUE if Proceed, FALSE if Cancel.
-    // Based on text above: True = Reminder, False = Receipt.
 
-    // 2. Generate Content
+    // Generate Content
     const htmlContent = generateInvoiceHtml(acc, isReminder);
-    const invoiceContainer = document.getElementById('invoiceContent');
-    invoiceContainer.innerHTML = htmlContent;
     
-    // 3. Create Temp Container for Rendering
+    // Create hidden temporary container
     const tempContainer = document.createElement('div');
     tempContainer.style.position = 'fixed';
     tempContainer.style.top = '0';
     tempContainer.style.left = '0';
     tempContainer.style.width = '100%';
-    tempContainer.style.height = '100%';
-    tempContainer.style.zIndex = '9999';
     tempContainer.style.background = '#ffffff';
+    tempContainer.style.zIndex = '9999';
     tempContainer.style.display = 'flex';
     tempContainer.style.justifyContent = 'center';
-    tempContainer.style.alignItems = 'center';
-    tempContainer.innerHTML = htmlContent; 
+    tempContainer.innerHTML = htmlContent;
     
     document.body.appendChild(tempContainer);
-    showToast('Generating Image...', 'info');
 
+    // Use HTML2Canvas
     const targetElement = tempContainer.querySelector('.invoice-thermal');
-
-    // 4. Capture
-    html2canvas(targetElement, {
-        scale: 2, 
-        useCORS: true, 
-        backgroundColor: '#ffffff',
-        logging: false
-    }).then(canvas => {
-        // Filename based on type
+    html2canvas(targetElement, { scale: 2, backgroundColor: '#ffffff' }).then(canvas => {
         const typeStr = isReminder ? "REMINDER" : "RECEIPT";
         const filename = `${typeStr}_${acc.name.replace(/\s+/g,'_')}_${Date.now()}.jpg`;
 
-        canvas.toBlob(function(blob) {
-            const url = URL.createObjectURL(blob);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = filename;
-            document.body.appendChild(link);
-            link.click();
-            
-            setTimeout(() => {
-                document.body.removeChild(link);
-                URL.revokeObjectURL(url);
-                document.body.removeChild(tempContainer); 
-                showToast(`${typeStr} Downloaded!`, 'success');
-            }, 100);
-        }, 'image/jpeg', 0.9);
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = canvas.toDataURL('image/jpeg', 0.9);
+        document.body.appendChild(link);
+        link.click();
         
-    }).catch(err => {
-        console.error(err);
+        // Cleanup
+        document.body.removeChild(link);
         document.body.removeChild(tempContainer);
-        showToast('Error generating invoice.', 'error');
+        showToast(`${typeStr} Downloaded!`, 'success');
     });
 };
+
 
 /* =========================================
    NEW UNIFIED DELETE FUNCTION
@@ -5177,20 +5157,19 @@ document.getElementById('btnSaveInvSettings').onclick = () => {
     showToast('Invoice settings saved!', 'success');
 };
 
-
-/* --- HELPER: Calculate Month Names for Receipt --- */
-function getCoverageMonths(startDateStr, amount, monthlyFee) {
-    if (!startDateStr || amount < monthlyFee) return "Partial Payment / Deposit";
+// HELPER: Calculate coverage string (e.g., "Oct 2023, Nov 2023")
+function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
+    if (amountPaid <= 0 || monthlyFee <= 0) return "N/A";
     
-    // Calculate how many full months are covered
-    const monthsCount = Math.floor(amount / monthlyFee);
-    if (monthsCount === 0) return "Partial Payment";
-
-    // Create a date object from the billing month (e.g., "2023-10")
-    // appending "-01" to make it a full date
-    let dateCursor = new Date(startDateStr.length === 7 ? startDateStr + "-01" : startDateStr);
+    // Calculate how many months the payment covers
+    const monthsCount = Math.floor(amountPaid / monthlyFee);
     
+    if (monthsCount < 1) return "Partial Payment";
+
+    let dateCursor = new Date(startDateIso);
     let monthNames = [];
+    
+    // Formatting options
     const opts = { month: 'short', year: 'numeric' };
 
     for (let i = 0; i < monthsCount; i++) {
@@ -5198,12 +5177,94 @@ function getCoverageMonths(startDateStr, amount, monthlyFee) {
         // Move to next month
         dateCursor.setMonth(dateCursor.getMonth() + 1);
     }
-
+    
     return monthNames.join(", ");
 }
+
+// --- NETWORK AGREEMENT LOGIC ---
+
+document.getElementById('btnNetworkAgreement').onclick = () => {
+    if (activeAccountIndex === null) return;
+    const acc = accounts[activeAccountIndex];
+    const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    // Generate the Document HTML
+    const html = `
+        <div class="legal-header">
+            <img src="logo.png" class="legal-logo" alt="Logo">
+            <div class="legal-title">Internet Service Agreement</div>
+            <div>N'RTECH INTERNET SERVICES</div>
+        </div>
+
+        <div class="legal-body">
+            <div class="legal-section">
+                <p>This Internet Service Agreement (the "Agreement") is made and entered into on <strong>${date}</strong> by and between <strong>N'RTECH INTERNET</strong> ("Provider") and <strong>${acc.name.toUpperCase()}</strong> ("Subscriber").</p>
+            </div>
+
+            <div class="legal-section">
+                <h4>1. SUBSCRIBER DETAILS</h4>
+                <div class="legal-row"><span>Account No:</span> <strong>${acc.accountNumber}</strong></div>
+                <div class="legal-row"><span>Service Address:</span> <strong>${acc.address}</strong></div>
+                <div class="legal-row"><span>Contact No:</span> <strong>${acc.contact}</strong></div>
+            </div>
+
+            <div class="legal-section">
+                <h4>2. SERVICE PLAN</h4>
+                <div class="legal-row"><span>Plan Name:</span> <strong>${acc.plan.name}</strong></div>
+                <div class="legal-row"><span>Speed:</span> <strong>${acc.plan.speed}</strong></div>
+                <div class="legal-row"><span>Monthly Fee:</span> <strong>₱${acc.plan.fee.toFixed(2)}</strong></div>
+                <div class="legal-row"><span>Billing Due Day:</span> <strong>Every ${acc.billingDay}th of the month</strong></div>
+            </div>
+
+            <div class="legal-section">
+                <h4>3. TERMS AND CONDITIONS</h4>
+                <p><strong>3.1 Payment:</strong> The Subscriber agrees to pay the Monthly Fee on or before the Billing Due Day. Failure to pay within 5 days after the due date may result in temporary service suspension.</p>
+                <p><strong>3.2 Usage:</strong> The service is intended for residential use. Illegal distribution of bandwidth or use of the network for illegal activities is strictly prohibited.</p>
+                <p><strong>3.3 Equipment:</strong> The modem/router (ONU) provided remains the property of the Provider (unless purchased). The Subscriber shall be liable for any damage to the equipment caused by negligence.</p>
+                <p><strong>3.4 Termination:</strong> The Provider reserves the right to terminate this agreement if the Subscriber violates these terms or fails to settle outstanding balances.</p>
+            </div>
+            
+            <div class="legal-sign-area">
+                <div class="sign-box">
+                    N'RTECH ADMIN<br>
+                    <span style="font-weight:normal; font-size:12px;">Authorized Signature</span>
+                </div>
+                <div class="sign-box">
+                    ${acc.name.toUpperCase()}<br>
+                    <span style="font-weight:normal; font-size:12px;">Subscriber Signature</span>
+                </div>
+            </div>
+        </div>
+    `;
+
+    document.getElementById('agreementContent').innerHTML = html;
+    document.getElementById('modalAgreementBackdrop').style.display = 'flex';
+};
+
+document.getElementById('closeAgreement').onclick = () => {
+    document.getElementById('modalAgreementBackdrop').style.display = 'none';
+};
+
+// Print Agreement
+document.getElementById('btnPrintAgreement').onclick = () => {
+    const content = document.getElementById('agreementContent').innerHTML;
+    const w = window.open('', '_blank');
+    w.document.write(`<html><head><title>Agreement</title><link rel="stylesheet" href="style.css"></head><body><div style="padding:40px; font-family:'Times New Roman'">${content}</div><script>window.print();window.close();<\/script></body></html>`);
+    w.document.close();
+};
+
+// Download Agreement PNG
+document.getElementById('btnPngAgreement').onclick = () => {
+    html2canvas(document.getElementById('agreementContent'), { scale: 2 }).then(canvas => {
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/jpeg');
+        a.download = `AGREEMENT_${new Date().getTime()}.jpg`;
+        a.click();
+    });
+};
+
 
 </script>
 </body>
 </html>
 
- 
