@@ -984,28 +984,93 @@
     .invoice-clean { display: none; } 
 }
 
-
-/* --- NETWORK AGREEMENT DOCUMENT STYLE --- */
-.legal-paper {
+/* --- A4 CONTRACT STYLE --- */
+.page-a4 {
+    width: 210mm;
+    min-height: 297mm;
+    padding: 20mm;
+    margin: 10px auto;
     background: white;
-    padding: 40px;
+    box-shadow: 0 0 10px rgba(0,0,0,0.1);
     font-family: 'Times New Roman', Times, serif;
     color: #000;
-    line-height: 1.6;
-    border: 1px solid #ccc;
-    box-shadow: 0 0 15px rgba(0,0,0,0.1);
-    max-width: 800px;
-    margin: 0 auto;
+    font-size: 12pt;
+    line-height: 1.5;
+    position: relative;
+    display: none; /* Hidden by default */
 }
-.legal-header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #000; padding-bottom: 20px; }
-.legal-title { font-size: 24px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
-.legal-logo { height: 60px; margin-bottom: 10px; }
-.legal-body { font-size: 14px; text-align: justify; }
-.legal-section { margin-bottom: 15px; }
-.legal-section h4 { margin: 0 0 5px 0; font-size: 16px; text-decoration: underline; }
-.legal-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-.legal-sign-area { margin-top: 50px; display: flex; justify-content: space-between; gap: 50px; }
-.sign-box { border-top: 1px solid #000; width: 45%; text-align: center; padding-top: 10px; font-weight: bold; }
+.contract-header {
+    text-align: center;
+    border-bottom: 2px solid #000;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+}
+.contract-title {
+    font-size: 18pt;
+    font-weight: bold;
+    text-transform: uppercase;
+    margin: 10px 0;
+}
+.contract-section {
+    margin-bottom: 15px;
+}
+.contract-label {
+    font-weight: bold;
+    display: inline-block;
+    width: 150px;
+}
+.contract-signature-area {
+    margin-top: 50px;
+    display: flex;
+    justify-content: space-between;
+}
+.sign-box {
+    width: 45%;
+    border-top: 1px solid #000;
+    text-align: center;
+    padding-top: 5px;
+}
+/* Print override for Contract */
+@media print {
+    body.printing-contract * { visibility: hidden; }
+    #contractArea, #contractArea * { visibility: visible; }
+    #contractArea {
+        position: absolute;
+        left: 0;
+        top: 0;
+        display: block !important;
+        box-shadow: none;
+        width: 100%;
+    }
+}
+
+/* Fix for Contract Modal Scrolling */
+#modalContractBackdrop {
+    display: none; /* Hidden by default */
+}
+
+/* Ensure the A4 page looks like a paper inside the modal */
+#modalContractBackdrop .page-a4 {
+    display: block;
+    margin: 0 auto 20px auto; /* Center it */
+    position: relative;
+    width: 210mm;
+    max-width: 95%; /* Responsive for mobile */
+    min-height: 297mm;
+    background: white;
+    padding: 20mm;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+}
+
+/* Mobile tweak for contract */
+@media (max-width: 600px) {
+    #modalContractBackdrop .page-a4 {
+        padding: 10px;
+        width: 95%;
+        min-height: auto;
+    }
+}
+
 
 </style>
 
@@ -1013,6 +1078,8 @@
 
 </head>
 <body>
+
+
 
 <div id="toastContainer"></div>
 
@@ -1266,8 +1333,7 @@
             <h4 style="margin:0; color: var(--accent-2);">Payment Records</h4>
             <button id="btnExportPayments" class="no-print small ghost" style="font-size: 11px;">📂 Export CSV</button>
         </div>
-        
-  
+
         <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
             <button id="btnAddPayment" class="no-print small" style="background: var(--accent); color: white;">
                 💲 Add Payment
@@ -1293,10 +1359,6 @@
             <button id="btnSendMessenger" class="no-print small ghost" style="white-space: nowrap;">
                 💬 Messenger
             </button>
-            <button id="btnNetworkAgreement" class="no-print small ghost" style="white-space: nowrap; color: var(--accent-2); border-color: var(--accent-2);">
-    ⚖️ Agreement
-</button>
-
         </div>
 
       </div>
@@ -1313,7 +1375,10 @@
         <button id="btnSuspend" class="ghost no-print small">Suspend</button>
         <button id="btnTerminate" class="ghost no-print small">Terminate</button>
         <button id="btnReconnect" class="no-print small">Reconnect</button>
-        <button id="btnDeleteAccount" class="ghost no-print small" style="color: red; border-color: red;">Delete Account</button> </div>
+        <button id="btnDeleteAccount" class="ghost no-print small" style="color: red; border-color: red;">Delete Account</button>
+        <button id="btnViewContract" class="no-print small" style="background: #333; color: white;">📄 Service Agreement</button>
+       
+ </div>
 
       <hr style="margin:12px 0; border-color: var(--border);">
 
@@ -1887,23 +1952,10 @@
   </div>
 </div>
 
-<div class="modal-backdrop" id="modalAgreementBackdrop">
-    <div class="modal" style="width: min(95%, 850px); max-height: 95vh;">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-            <h3 style="color: var(--accent-2);">📄 Service Agreement</h3>
-            <div style="display:flex; gap:10px;">
-                <button id="btnPrintAgreement" class="small ghost">🖨️ Print</button>
-                <button id="btnPngAgreement" class="small ghost">⬇️ PNG</button>
-                <button id="closeAgreement" class="no-print ghost small">Close</button>
-            </div>
-        </div>
-        <div style="overflow-y: auto; max-height: 80vh; background: #555; padding: 20px;">
-            <div id="agreementContent" class="legal-paper">
-                </div>
-        </div>
+<div class="modal-backdrop" id="modalContractBackdrop" style="z-index: 2000; overflow-y: auto; align-items: flex-start; padding-top: 20px;">
+    <div id="contractArea" class="page-a4" style="display: block;">
     </div>
 </div>
-
 
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -3967,9 +4019,9 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
    UPDATED INVOICE GENERATOR (WITH GCASH & POINTS BREAKDOWN)
    ========================= */
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
-    
-    // 1. Setup Data
+    // 1. Determine Payment Data
     let targetPayment = null;
+    // If getting a specific receipt (from history click) or default to last payment
     if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
         targetPayment = acc.payments[specificPaymentIndex];
     } else if (!isReminder && acc.payments.length > 0) {
@@ -3979,102 +4031,116 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     const today = new Date();
     const planFee = acc.plan.fee;
     
-    // 2. Dates & Reference
-    let displayDate = isReminder ? today.toLocaleDateString() : (targetPayment ? new Date(targetPayment.date).toLocaleDateString() : today.toLocaleDateString());
-    let refNum = isReminder ? "REMINDER" : (targetPayment ? (targetPayment.referenceNumber || "REF") : "BILLING");
-    
-    // 3. Loyalty Points (Only Advance, On-Time, Lost)
+    // 2. Points Logic (Requirement 1: Advance, Ontime, Lost only)
     const pAdv = acc.points.advance || 0;
     const pTime = acc.points.ontime || 0;
     const pLost = acc.points.lost || 0;
+    const totalPoints = pAdv + pTime - pLost;
 
-    // 4. Calculate Coverage & Amounts
-    let amountDisplay = 0;
-    let mainDescription = `Internet Plan (${acc.plan.name})`;
-    let coverageText = "";
-    let niceNote = "";
-
-    // --- RECEIPT LOGIC ---
-    if (!isReminder && targetPayment) {
-        amountDisplay = Number(targetPayment.amount);
+    // 3. Logic: Advance Payment Coverage (Requirement 3)
+    let descriptionHtml = '';
+    let coverageText = '';
+    
+    if(!isReminder && targetPayment) {
+        // Calculate months covered
+        coverageText = getCoverageDescription(targetPayment.date, targetPayment.amount, planFee);
         
-        // Calculate Coverage (Feature #3)
-        const coverage = calculateMonthsCovered(targetPayment.date, amountDisplay, planFee);
-        coverageText = `<div style="font-size:10px; font-style:italic; margin-left: 10px;">Covered: ${coverage}</div>`;
-        niceNote = targetPayment.note || 'Payment Received. Thank you!';
-    } 
-    // --- REMINDER LOGIC (Feature #4) ---
-    else {
-        const balance = acc.excessLackingBalance;
-        // Determine the NEXT month after current coverage
-        // We use the Next Due Date to determine the upcoming bill month
-        const nextDueObj = new Date(acc.nextDue);
-        const nextBillMonth = nextDueObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-        
-        mainDescription = `Bill for ${nextBillMonth}`;
-        
-        // Logic for Total Due
-        let totalDue = planFee;
-        let arrearsHtml = '';
-        
-        if (balance < 0) {
-            // They owe money (Arrears)
-            arrearsHtml = `<div class="therm-row" style="color:var(--toast-error);"><span>Unpaid Balance:</span><span>₱${Math.abs(balance).toFixed(2)}</span></div>`;
-            totalDue += Math.abs(balance);
-            niceNote = "Friendly Reminder: Please settle your unpaid balance to avoid service interruption.";
-        } else if (balance > 0) {
-            // They have credit
-            arrearsHtml = `<div class="therm-row" style="color:var(--toast-success);"><span>Less Wallet Balance:</span><span>-₱${balance.toFixed(2)}</span></div>`;
-            totalDue = Math.max(0, totalDue - balance);
-            niceNote = "You have excess balance applied to this bill.";
-        } else {
-             niceNote = "Please pay before the due date to maintain good standing.";
-        }
-        
-        amountDisplay = totalDue;
-        coverageText = arrearsHtml; // Inject arrears into the details area
+        descriptionHtml = `
+        <div class="therm-row">
+            <span>Internet Plan (${acc.plan.name})</span>
+            <span>₱${planFee.toFixed(2)}</span>
+        </div>
+        <div class="therm-row" style="font-size:10px; color:#555; margin-bottom:5px;">
+            <span>Coverage: ${coverageText}</span>
+        </div>`;
+    } else {
+        // Simple description for Reminder
+        descriptionHtml = `
+        <div class="therm-row">
+            <span>Monthly Fee (${acc.plan.name})</span>
+            <span>₱${planFee.toFixed(2)}</span>
+        </div>`;
     }
 
-    // 5. Generate HTML
+    // 4. Reminder Breakdown Logic (Requirement 4)
+    let reminderDetailsHtml = '';
+    let amountDisplay = 0;
+    
+    if(isReminder) {
+        const balance = acc.excessLackingBalance;
+        let totalDue = planFee; 
+
+        reminderDetailsHtml += `<div class="therm-divider"></div>`;
+        
+        // Break down unpaid amounts
+        if (balance < 0) {
+            reminderDetailsHtml += `
+            <div class="therm-row" style="color:var(--toast-error);">
+                <span>Previous Unpaid:</span>
+                <span>₱${Math.abs(balance).toFixed(2)}</span>
+            </div>`;
+            totalDue += Math.abs(balance);
+        } else if (balance > 0) {
+            reminderDetailsHtml += `
+            <div class="therm-row" style="color:var(--toast-success);">
+                <span>Wallet Credit:</span>
+                <span>-₱${balance.toFixed(2)}</span>
+            </div>`;
+            totalDue = Math.max(0, totalDue - balance);
+        }
+        
+        reminderDetailsHtml += `
+        <div class="therm-row">
+            <span>Current Month Due:</span>
+            <span>₱${planFee.toFixed(2)}</span>
+        </div>`;
+        
+        amountDisplay = totalDue;
+    } else {
+        amountDisplay = Number(targetPayment.amount);
+    }
+
+    // Footer Note
+    const footerNote = isReminder 
+        ? "REMINDER: Please settle your balance to avoid interruption." 
+        : (targetPayment ? (targetPayment.note || 'Payment Received') : '');
+
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
-            <img src="logo.png" class="therm-logo" alt="Logo"><br> <div class="therm-title">N'RTECH INTERNET</div>
+            <img src="logo.png" class="therm-logo" alt="Logo"><br> 
+            <div class="therm-title">N'RTECH INTERNET</div>
             <div>San Vicente, Tubod, LDN</div>
             <div>0946-895-3577</div>
         </div>
 
         <div class="therm-info">
-            <div class="therm-row"><span>Date:</span> <span>${displayDate}</span></div>
-            <div class="therm-row"><span>Ref #:</span> <b>${refNum}</b></div>
+            <div class="therm-row"><span>Date:</span> <span>${today.toLocaleDateString()}</span></div>
+            <div class="therm-row"><span>Ref #:</span> <b>${targetPayment ? (targetPayment.referenceNumber || 'N/A') : 'BILLING'}</b></div>
             <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
+            ${isReminder ? `<div class="therm-row" style="font-weight:bold; color:red; margin-top:4px;"><span>Due Date:</span> <span>${new Date(acc.nextDue).toLocaleDateString()}</span></div>` : ''}
         </div>
         
         <div class="therm-points-box">
-            <div style="font-weight:bold; margin-bottom:2px;">LOYALTY STATUS</div>
-            <div style="display:flex; justify-content:space-between; font-size:10px; padding: 0 10px;">
-                <span>Advance: <b>${pAdv}</b></span>
-                <span>On-Time: <b>${pTime}</b></span>
-                <span>Lost: <b>${pLost}</b></span>
+            <div style="font-weight:bold; margin-bottom:2px;">TOTAL POINTS: ${totalPoints}</div>
+            <div style="display:flex; justify-content:space-around; font-size:10px;">
+                <span>Adv: ${pAdv}</span>
+                <span>On-Time: ${pTime}</span>
+                <span>Lost: ${pLost}</span>
             </div>
+            ${!isReminder && targetPayment && targetPayment.amount >= planFee*2 ? '<div style="font-size:9px; margin-top:2px;">(Points gained for advance payment included)</div>' : ''}
         </div>
 
         <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">
-            ${isReminder ? 'PAYMENT REMINDER' : 'OFFICIAL RECEIPT'}
+            ${isReminder ? 'BILLING REMINDER' : 'OFFICIAL RECEIPT'}
         </div>
 
-        <div class="therm-row" style="border-bottom: 1px solid #ddd; padding-bottom:2px;">
-            <span>Description</span>
-            <span>Amount</span>
-        </div>
+        <div class="therm-row"><span>Description</span><span>Amount</span></div>
         
-        <div class="therm-row" style="margin-top: 5px;">
-            <span>${mainDescription}</span>
-            <span>₱${planFee.toFixed(2)}</span>
-        </div>
-        ${coverageText}
+        ${descriptionHtml}
+        ${reminderDetailsHtml}
 
         <div class="therm-divider"></div>
 
@@ -4083,17 +4149,22 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <span>₱${amountDisplay.toFixed(2)}</span>
         </div>
 
-        <div style="margin-top:10px; font-size:11px; text-align:center; font-style:italic; border: 1px dashed #ccc; padding: 5px;">
-            "${niceNote}"
+        <div style="margin-top:5px; font-size:11px; text-align:center; font-style:italic;">
+            ${footerNote}
         </div>
 
-        <div class="therm-footer">
-            <br>
-            Thank you for choosing N'RTECH!
+        <div style="margin-top: 15px; border-top: 2px dashed #000; padding-top: 10px; text-align: center;">
+            <div style="font-weight: 800; margin-bottom: 5px;">PAY VIA GCASH</div>
+            <img src="gcash-qr.png" style="width: 100px; height: 100px; border: 2px solid #000;">
+            <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">0931-792-6807</div>
+            <div style="font-size: 10px;">NO***L JO*N R.</div>
         </div>
+
+        <div class="therm-footer"><br><i>Thank you for choosing N'RTECH!</i></div>
     </div>
     `;
 }
+
 
 
 
@@ -4880,49 +4951,47 @@ document.getElementById('btnSaveDiscount').onclick = () => {
    ========================================= */
 document.getElementById('btnDownloadInvoicePng').onclick = async () => {
     if (activeAccountIndex === null) return showToast('Select an account.', 'warning');
-    const acc = accounts[activeAccountIndex];
-
-    // FEATURE 2: Button choice for Receipt or Reminder
-    const isReminder = await customConfirm(
-        "Click OK for BILLING REMINDER\nClick CANCEL for OFFICIAL RECEIPT", 
-        "⬇️ Download Option"
+    
+    // REQUIREMENT 2: Choice Button Logic
+    // We reuse customConfirm but phrase it as a choice
+    const userChoice = await customConfirm(
+        "Select PNG Download Type:\n\n[PROCEED] = Download Billing Reminder\n[CANCEL] = Download Payment Receipt", 
+        "📥 Download Options"
     );
 
-    // Generate Content
+    // userChoice is true (Proceed/Reminder) or false (Cancel/Receipt)
+    const isReminder = userChoice;
+    const acc = accounts[activeAccountIndex];
+
+    // Generate HTML
     const htmlContent = generateInvoiceHtml(acc, isReminder);
     
-    // Create hidden temporary container
+    // Create Temp Container for Capture
     const tempContainer = document.createElement('div');
-    tempContainer.style.position = 'fixed';
-    tempContainer.style.top = '0';
-    tempContainer.style.left = '0';
-    tempContainer.style.width = '100%';
-    tempContainer.style.background = '#ffffff';
-    tempContainer.style.zIndex = '9999';
-    tempContainer.style.display = 'flex';
-    tempContainer.style.justifyContent = 'center';
+    Object.assign(tempContainer.style, {
+        position: 'fixed', top: '0', left: '0', width: '100%', height: '100%',
+        zIndex: '9999', background: '#fff', display: 'flex', 
+        justifyContent: 'center', alignItems: 'center'
+    });
     tempContainer.innerHTML = htmlContent;
-    
     document.body.appendChild(tempContainer);
+    
+    showToast('Generating PNG...', 'info');
 
-    // Use HTML2Canvas
-    const targetElement = tempContainer.querySelector('.invoice-thermal');
-    html2canvas(targetElement, { scale: 2, backgroundColor: '#ffffff' }).then(canvas => {
-        const typeStr = isReminder ? "REMINDER" : "RECEIPT";
-        const filename = `${typeStr}_${acc.name.replace(/\s+/g,'_')}_${Date.now()}.jpg`;
-
+    // Capture
+    html2canvas(tempContainer.querySelector('.invoice-thermal'), {
+        scale: 2, useCORS: true, backgroundColor: '#ffffff'
+    }).then(canvas => {
         const link = document.createElement('a');
-        link.download = filename;
-        link.href = canvas.toDataURL('image/jpeg', 0.9);
-        document.body.appendChild(link);
+        link.download = `NRTECH_${isReminder?'Reminder':'Receipt'}_${acc.accountNumber}.png`;
+        link.href = canvas.toDataURL('image/png');
         link.click();
         
-        // Cleanup
-        document.body.removeChild(link);
         document.body.removeChild(tempContainer);
-        showToast(`${typeStr} Downloaded!`, 'success');
+        showToast('Download started!', 'success');
     });
 };
+
 
 
 /* =========================================
@@ -5157,175 +5226,112 @@ document.getElementById('btnSaveInvSettings').onclick = () => {
     showToast('Invoice settings saved!', 'success');
 };
 
-// HELPER: Calculate coverage string (e.g., "Oct 2023, Nov 2023")
-function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
-    if (amountPaid <= 0 || monthlyFee <= 0) return "N/A";
+function getCoverageDescription(startDateIso, amountPaid, monthlyFee) {
+    if (amountPaid < monthlyFee) return "Partial Payment";
     
-    // Calculate how many months the payment covers
-    const monthsCount = Math.floor(amountPaid / monthlyFee);
-    
-    if (monthsCount < 1) return "Partial Payment";
-
-    let dateCursor = new Date(startDateIso);
-    let monthNames = [];
+    // Calculate full months paid
+    const monthsPaid = Math.floor(amountPaid / monthlyFee);
+    const start = new Date(startDateIso);
+    let result = [];
     
     // Formatting options
-    const opts = { month: 'short', year: 'numeric' };
+    const opts = { month: 'short', year: 'numeric' }; // e.g., "Oct 2025"
 
-    for (let i = 0; i < monthsCount; i++) {
-        monthNames.push(dateCursor.toLocaleDateString('en-US', opts));
-        // Move to next month
-        dateCursor.setMonth(dateCursor.getMonth() + 1);
+    for(let i=0; i < monthsPaid; i++) {
+        // Create a copy of date to avoid shifting the original reference
+        let current = new Date(start);
+        current.setMonth(start.getMonth() + i);
+        result.push(current.toLocaleDateString('en-US', opts));
     }
     
-    return monthNames.join(", ");
+    return result.join(", ");
 }
 
-// --- NETWORK AGREEMENT LOGIC ---
 
-document.getElementById('btnNetworkAgreement').onclick = () => {
-    if (activeAccountIndex === null) return;
+// --- REQUIREMENT 5: NETWORK AGREEMENT LOGIC ---
+
+// 1. Button Click Listener
+document.getElementById('btnViewContract').onclick = () => {
+    if(activeAccountIndex === null) return;
     const acc = accounts[activeAccountIndex];
-    const date = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    generateAndShowContract(acc);
+};
 
-    // Generate the Document HTML
+// 2. Generator Function (UPDATED FOR POPUP)
+function generateAndShowContract(acc) {
+    const dateStr = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    
     const html = `
-        <div class="legal-header">
-            <img src="logo.png" class="legal-logo" alt="Logo">
-            <div class="legal-title">Internet Service Agreement</div>
-            <div>N'RTECH INTERNET SERVICES</div>
+    <div class="contract-header">
+        <img src="logo.png" style="height: 60px; margin-bottom: 10px;">
+        <div class="contract-title">Network Service Agreement</div>
+        <div>N'RTECH INTERNET SERVICES</div>
+        <div style="font-size: 10pt;">San Vicente, Tubod, Lanao del Norte | 0946-895-3577</div>
+    </div>
+
+    <div class="contract-section">
+        <p>This Service Agreement ("Agreement") is made and entered into on <u>${dateStr}</u> by and between <strong>N'RTECH INTERNET</strong> ("Provider") and the Subscriber named below.</p>
+    </div>
+
+    <div class="contract-section" style="border: 1px solid #000; padding: 15px;">
+        <div style="margin-bottom:8px;"><span class="contract-label">Account No:</span> ${acc.accountNumber}</div>
+        <div style="margin-bottom:8px;"><span class="contract-label">Subscriber Name:</span> ${acc.name}</div>
+        <div style="margin-bottom:8px;"><span class="contract-label">Service Address:</span> ${acc.address}</div>
+        <div style="margin-bottom:8px;"><span class="contract-label">Contact No:</span> ${acc.contact}</div>
+        <div style="margin-bottom:0;"><span class="contract-label">Internet Plan:</span> ${acc.plan.name} (${acc.plan.speed}) @ ₱${acc.plan.fee}/mo</div>
+    </div>
+
+    <div class="contract-section">
+        <strong>TERMS AND CONDITIONS:</strong>
+        <ol style="font-size: 11pt; padding-left: 20px;">
+            <li><strong>Service Period:</strong> The monthly service cycle begins on the <u>${acc.billingDay}th</u> of every month.</li>
+            <li><strong>Payment:</strong> Payments must be made on or before the due date. A grace period of 5 days is allowed.</li>
+            <li><strong>Disconnection:</strong> Failure to pay 6 days after the due date may result in temporary service suspension.</li>
+            <li><strong>Equipment:</strong> The Modem/ONU device provided remains the property of N'RTECH unless purchased by the subscriber. Care for the device is the subscriber's responsibility.</li>
+            <li><strong>Fair Use Policy:</strong> The service is for residential use only. Illegal distribution or reselling of bandwidth is prohibited.</li>
+        </ol>
+    </div>
+
+    <div class="contract-section">
+        <p>By signing below, the Subscriber acknowledges reading, understanding, and agreeing to the terms set forth in this Agreement.</p>
+    </div>
+
+    <div class="contract-signature-area">
+        <div class="sign-box">
+            <div style="font-family: 'Courier New'; font-weight:bold;">${acc.name.toUpperCase()}</div>
+            <div>Subscriber Signature over Printed Name</div>
         </div>
-
-        <div class="legal-body">
-            <div class="legal-section">
-                <p>This Internet Service Agreement (the "Agreement") is made and entered into on <strong>${date}</strong> by and between <strong>N'RTECH INTERNET</strong> ("Provider") and <strong>${acc.name.toUpperCase()}</strong> ("Subscriber").</p>
-            </div>
-
-            <div class="legal-section">
-                <h4>1. SUBSCRIBER DETAILS</h4>
-                <div class="legal-row"><span>Account No:</span> <strong>${acc.accountNumber}</strong></div>
-                <div class="legal-row"><span>Service Address:</span> <strong>${acc.address}</strong></div>
-                <div class="legal-row"><span>Contact No:</span> <strong>${acc.contact}</strong></div>
-            </div>
-
-            <div class="legal-section">
-                <h4>2. SERVICE PLAN</h4>
-                <div class="legal-row"><span>Plan Name:</span> <strong>${acc.plan.name}</strong></div>
-                <div class="legal-row"><span>Speed:</span> <strong>${acc.plan.speed}</strong></div>
-                <div class="legal-row"><span>Monthly Fee:</span> <strong>₱${acc.plan.fee.toFixed(2)}</strong></div>
-                <div class="legal-row"><span>Billing Due Day:</span> <strong>Every ${acc.billingDay}th of the month</strong></div>
-            </div>
-
-            <div class="legal-section">
-                <h4>3. TERMS AND CONDITIONS</h4>
-                <p><strong>3.1 Payment:</strong> The Subscriber agrees to pay the Monthly Fee on or before the Billing Due Day. Failure to pay within 5 days after the due date may result in temporary service suspension.</p>
-                <p><strong>3.2 Usage:</strong> The service is intended for residential use. Illegal distribution of bandwidth or use of the network for illegal activities is strictly prohibited.</p>
-                <p><strong>3.3 Equipment:</strong> The modem/router (ONU) provided remains the property of the Provider (unless purchased). The Subscriber shall be liable for any damage to the equipment caused by negligence.</p>
-                <p><strong>3.4 Termination:</strong> The Provider reserves the right to terminate this agreement if the Subscriber violates these terms or fails to settle outstanding balances.</p>
-            </div>
-            
-            <div class="legal-sign-area">
-                <div class="sign-box">
-                    N'RTECH ADMIN<br>
-                    <span style="font-weight:normal; font-size:12px;">Authorized Signature</span>
-                </div>
-                <div class="sign-box">
-                    ${acc.name.toUpperCase()}<br>
-                    <span style="font-weight:normal; font-size:12px;">Subscriber Signature</span>
-                </div>
-            </div>
+        <div class="sign-box">
+            <div style="font-family: 'Courier New'; font-weight:bold;">N'RTECH ADMIN</div>
+            <div>Authorized Provider Signature</div>
         </div>
+    </div>
+    
+    <div style="margin-top: 50px; text-align: center;">
+        <button id="btnPrintContractReal" class="no-print" style="padding: 10px 20px; font-size: 16px; background: #000; color: white; cursor: pointer; border-radius: 5px;">🖨️ Print Agreement</button>
+        <button id="btnCloseContract" class="no-print ghost" style="padding: 10px 20px; margin-left: 10px; cursor: pointer;">Close</button>
+    </div>
     `;
 
-    document.getElementById('agreementContent').innerHTML = html;
-    document.getElementById('modalAgreementBackdrop').style.display = 'flex';
-};
+    // 1. Inject HTML into the A4 Div
+    const area = document.getElementById('contractArea');
+    area.innerHTML = html;
 
-document.getElementById('closeAgreement').onclick = () => {
-    document.getElementById('modalAgreementBackdrop').style.display = 'none';
-};
+    // 2. Show the MODAL BACKDROP (This creates the popup effect)
+    document.getElementById('modalContractBackdrop').style.display = 'flex';
 
-// Print Agreement (Updated for A4)
-document.getElementById('btnPrintAgreement').onclick = () => {
-    const content = document.getElementById('agreementContent').innerHTML;
-    const w = window.open('', '_blank', 'width=800,height=900');
+    // 3. Button Logic
+    document.getElementById('btnPrintContractReal').onclick = () => {
+        document.body.classList.add('printing-contract');
+        window.print();
+        document.body.classList.remove('printing-contract');
+    };
     
-    w.document.write(`
-    <html>
-    <head>
-        <title>Service Agreement - N'RTECH</title>
-        <style>
-            /* 1. Define A4 Page Size */
-            @page {
-                size: A4;
-                margin: 0; /* We handle margins in the body to avoid browser headers */
-            }
-            
-            body {
-                margin: 0;
-                padding: 0;
-                background-color: #FAFAFA;
-                font-family: 'Times New Roman', Times, serif;
-                -webkit-print-color-adjust: exact;
-            }
-
-            /* 2. The Sheet of Paper */
-            .book {
-                width: 210mm;
-                min-height: 297mm;
-                padding: 20mm; /* Standard 1-inch (approx) margins */
-                margin: 10mm auto;
-                border: 1px solid #D3D3D3;
-                background: white;
-                box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
-                box-sizing: border-box;
-            }
-
-            /* 3. Styles copied from your main CSS to ensure it looks the same */
-            .legal-header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #000; padding-bottom: 20px; }
-            .legal-title { font-size: 24px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
-            .legal-logo { height: 60px; margin-bottom: 10px; }
-            .legal-body { font-size: 14px; text-align: justify; line-height: 1.6; }
-            .legal-section { margin-bottom: 15px; }
-            .legal-section h4 { margin: 0 0 5px 0; font-size: 16px; text-decoration: underline; }
-            .legal-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-            .legal-sign-area { margin-top: 50px; display: flex; justify-content: space-between; gap: 50px; }
-            .sign-box { border-top: 1px solid #000; width: 45%; text-align: center; padding-top: 10px; font-weight: bold; }
-
-            /* 4. Print Specific Override */
-            @media print {
-                body, .book {
-                    margin: 0;
-                    box-shadow: none;
-                    border: none;
-                    width: 210mm;
-                    height: 297mm;
-                    background: white;
-                }
-                /* Hide browser scrollbars */
-                ::-webkit-scrollbar { display: none; }
-            }
-        </style>
-    </head>
-    <body>
-        <div class="book">
-            ${content}
-        </div>
-        <script>
-            window.onload = function() {
-                setTimeout(function(){ 
-                    window.print(); 
-                    // Optional: window.close(); 
-                }, 500);
-            }
-        <\/script>
-    </body>
-    </html>
-    `);
-    
-    w.document.close();
-};
-
+    // Close Logic: Hides the backdrop
+    document.getElementById('btnCloseContract').onclick = () => {
+        document.getElementById('modalContractBackdrop').style.display = 'none';
+    };
+}
 
 
 </script>
