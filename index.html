@@ -3919,7 +3919,7 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 
 /* =========================
-   UPDATED INVOICE GENERATOR (WITH GCASH & POINTS BREAKDOWN)
+   UPDATED INVOICE GENERATOR
    ========================= */
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
     
@@ -3934,49 +3934,65 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     const today = new Date();
     const planFee = acc.plan.fee;
     
-    // 2. Context Date
-    let contextDateStr = isReminder 
-        ? new Date(acc.nextDue).toISOString().slice(0, 7) 
-        : (targetPayment ? targetPayment.date.slice(0, 7) : today.toISOString().slice(0, 7));
+    // 2. Setup Variables
+    let displayDate = today.toLocaleDateString();
+    let refNum = "BILLING";
+    let subTitle = isReminder ? "BILLING REMINDER" : "OFFICIAL RECEIPT";
+    let coverageText = "";
+    let pointsEarnedText = "";
 
-    const displayDate = targetPayment ? new Date(targetPayment.date).toLocaleDateString() : today.toLocaleDateString();
-    const refNum = targetPayment ? (targetPayment.referenceNumber || "REF") : "BILLING";
-    
-    // 3. POINTS CALCULATION (Breakdown)
+    // --- LOGIC FOR RECEIPT VS REMINDER ---
+    if(isReminder) {
+        // REMINDER LOGIC: Based on Next Unpaid Month
+        const dueDt = new Date(acc.nextDue);
+        // Format: "October 2023"
+        const dueMonthStr = dueDt.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+        coverageText = `Bill for: ${dueMonthStr}`;
+        displayDate = dueDt.toLocaleDateString(); // Invoice date is the Due Date
+    } else if (targetPayment) {
+        // RECEIPT LOGIC: Based on Payment
+        displayDate = new Date(targetPayment.date).toLocaleDateString();
+        refNum = targetPayment.referenceNumber || "REF";
+        
+        // Calculate Months Covered
+        // Use saved billingMonth if available, otherwise use transaction date
+        const startMonth = targetPayment.billingMonth || targetPayment.date;
+        const monthsList = getCoverageMonths(startMonth, targetPayment.amount, planFee);
+        coverageText = `Coverage: ${monthsList}`;
+
+        // Calculate Points Gained (Estimate)
+        const monthsCount = Math.floor(targetPayment.amount / planFee);
+        if(monthsCount > 0) {
+            // Simple logic: If paying in advance (more than 1 month), assume advance points
+            // Adjust logic based on your specific rules if needed
+            const pointType = monthsCount > 1 ? "Advance" : "On-Time"; 
+            pointsEarnedText = `(+${monthsCount} ${pointType} Points)`;
+        }
+    }
+
+    // 3. POINTS SUMMARY (Cleaned Up)
     const pAdv = acc.points.advance || 0;
     const pTime = acc.points.ontime || 0;
     const pLost = acc.points.lost || 0;
-    const totalPoints = pAdv + pTime - pLost;
 
-    // 4. GATHER TRANSPARENT ITEMS (Charges/Discounts)
+    // 4. TRANSPARENT ITEMS (Charges/Discounts)
     let extraItemsHtml = '';
     let totalExtras = 0;
-
-    if(acc.charges) {
-        acc.charges.forEach(c => {
-            if(c.date.startsWith(contextDateStr)) {
-                extraItemsHtml += `
-                <div class="therm-row" style="color:var(--toast-error);">
-                    <span>[+] ${c.note || 'Extra Charge'}</span>
-                    <span>₱${Number(c.amount).toFixed(2)}</span>
-                </div>`;
-                totalExtras += Number(c.amount);
-            }
-        });
-    }
-
-    if(acc.discounts) {
-        acc.discounts.forEach(d => {
-            if(d.date.startsWith(contextDateStr)) {
-                extraItemsHtml += `
-                <div class="therm-row" style="color:var(--toast-success);">
-                    <span>[-] ${d.note || 'Discount'}</span>
-                    <span>-₱${Number(d.amount).toFixed(2)}</span>
-                </div>`;
-                totalExtras -= Number(d.amount);
-            }
-        });
-    }
+    // (Logic remains same as before for finding monthly charges)
+    const contextDateStr = isReminder ? new Date(acc.nextDue).toISOString().slice(0, 7) : (targetPayment ? targetPayment.date.slice(0, 7) : "");
+    
+    if(acc.charges) acc.charges.forEach(c => {
+        if(c.date.startsWith(contextDateStr)) {
+            extraItemsHtml += `<div class="therm-row" style="color:var(--toast-error);"><span>[+] ${c.note}</span><span>₱${Number(c.amount).toFixed(2)}</span></div>`;
+            totalExtras += Number(c.amount);
+        }
+    });
+    if(acc.discounts) acc.discounts.forEach(d => {
+        if(d.date.startsWith(contextDateStr)) {
+            extraItemsHtml += `<div class="therm-row" style="color:var(--toast-success);"><span>[-] ${d.note}</span><span>-₱${Number(d.amount).toFixed(2)}</span></div>`;
+            totalExtras -= Number(d.amount);
+        }
+    });
 
     // 5. CALCULATE TOTALS
     let amountDisplay = 0;
@@ -3991,7 +4007,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             balanceRowHtml = `<div class="therm-row" style="color:var(--toast-success);"><span>Less: Wallet Balance</span><span>-₱${currentBalance.toFixed(2)}</span></div>`;
             grandTotal = Math.max(0, nextBillAmount - currentBalance);
         } else if (currentBalance < 0) {
-            balanceRowHtml = `<div class="therm-row" style="color:var(--toast-error);"><span>Plus: Unpaid Balance</span><span>₱${Math.abs(currentBalance).toFixed(2)}</span></div>`;
+            balanceRowHtml = `<div class="therm-row" style="color:var(--toast-error);"><span>Plus: Past Due</span><span>₱${Math.abs(currentBalance).toFixed(2)}</span></div>`;
             grandTotal = nextBillAmount + Math.abs(currentBalance);
         }
         amountDisplay = grandTotal;
@@ -4018,16 +4034,16 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         </div>
         
         <div class="therm-points-box">
-            <div style="font-weight:bold; margin-bottom:2px;">LOYALTY POINTS: ${totalPoints}</div>
-            <div style="display:flex; justify-content:space-around; font-size:10px;">
-                <span>Adv: ${pAdv}</span>
-                <span>On-Time: ${pTime}</span>
-                <span>Lost: ${pLost}</span>
+            <div style="font-weight:bold; margin-bottom:4px; border-bottom:1px solid #ddd;">LOYALTY POINTS</div>
+            <div style="display:flex; justify-content:space-between; font-size:11px;">
+                <span>Adv: <b>${pAdv}</b></span>
+                <span>On-Time: <b>${pTime}</b></span>
+                <span style="color:red">Lost: <b>${pLost}</b></span>
             </div>
         </div>
 
-        <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">
-            ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
+        <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 4px; background:#f9f9f9;">
+            ${subTitle}
         </div>
 
         <div class="therm-row">
@@ -4038,6 +4054,10 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         <div class="therm-row">
             <span>Internet Plan (${acc.plan.name})</span>
             <span>₱${planFee.toFixed(2)}</span>
+        </div>
+        
+        <div style="font-size: 10px; color: #555; margin-bottom: 5px; font-style:italic;">
+            ${coverageText} ${!isReminder ? pointsEarnedText : ''}
         </div>
 
         ${extraItemsHtml}
@@ -4060,9 +4080,6 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <img src="gcash-qr.png" style="width: 100px; height: 100px; border: 2px solid #000;">
             <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">0931-792-6807</div>
             <div style="font-size: 10px;">NO***L JO*N R.</div>
-            <div style="font-size: 10px; margin-top: 5px; font-style: italic;">
-                Note: Simply scan the QR code using your GCash app to pay.
-            </div>
         </div>
 
         <div class="therm-footer">
@@ -4072,7 +4089,6 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     </div>
     `;
 }
-
 
 
 
@@ -4854,56 +4870,58 @@ document.getElementById('btnSaveDiscount').onclick = () => {
 };
 
 /* =========================================
-   FIXED: MOBILE INVOICE DOWNLOAD
+   FIXED: MOBILE INVOICE DOWNLOAD WITH CHOICE
    ========================================= */
 document.getElementById('btnDownloadInvoicePng').onclick = async () => {
     if (activeAccountIndex === null) return showToast('Select an account.', 'warning');
     const acc = accounts[activeAccountIndex];
 
-    // Ask type
+    // 1. ASK USER: Receipt or Reminder?
+    // We use customConfirm. True = OK (Reminder), False = Cancel (Receipt)
+    // We customize the text to make this clear.
     const isReminder = await customConfirm(
-        "Generate Billing Statement (Total Due)?\nCancel for Payment Receipt.", 
-        "📄 Select Type"
+        "Generate BILLING REMINDER (Total Due)?\n\nClick 'Proceed' for Reminder.\nClick 'Cancel' for Official Receipt.", 
+        "📄 Select Invoice Type"
     );
+    
+    // Note: customConfirm returns TRUE if Proceed, FALSE if Cancel.
+    // Based on text above: True = Reminder, False = Receipt.
 
-    // 1. Generate Content
+    // 2. Generate Content
     const htmlContent = generateInvoiceHtml(acc, isReminder);
     const invoiceContainer = document.getElementById('invoiceContent');
     invoiceContainer.innerHTML = htmlContent;
     
-    // 2. Mobile Fix: Clone the element to document body to ensure it renders
-    // We create a temporary container that is visible but covers the screen with white
+    // 3. Create Temp Container for Rendering
     const tempContainer = document.createElement('div');
     tempContainer.style.position = 'fixed';
     tempContainer.style.top = '0';
     tempContainer.style.left = '0';
     tempContainer.style.width = '100%';
-    tempContainer.style.height = '100%'; // Full screen
+    tempContainer.style.height = '100%';
     tempContainer.style.zIndex = '9999';
     tempContainer.style.background = '#ffffff';
     tempContainer.style.display = 'flex';
     tempContainer.style.justifyContent = 'center';
     tempContainer.style.alignItems = 'center';
-    tempContainer.innerHTML = htmlContent; // Inject invoice
+    tempContainer.innerHTML = htmlContent; 
     
     document.body.appendChild(tempContainer);
     showToast('Generating Image...', 'info');
 
-    // 3. Find the specific invoice div inside our temp container
     const targetElement = tempContainer.querySelector('.invoice-thermal');
 
-    // 4. Capture with Lower Scale for Mobile Compatibility
-    // Scale 3 causes crashes on some phones. Scale 2 is HD enough.
+    // 4. Capture
     html2canvas(targetElement, {
         scale: 2, 
         useCORS: true, 
         backgroundColor: '#ffffff',
         logging: false
     }).then(canvas => {
-        // Create filename
-        const filename = `INVOICE_${acc.name.replace(/\s+/g,'_')}_${Date.now()}.jpg`;
+        // Filename based on type
+        const typeStr = isReminder ? "REMINDER" : "RECEIPT";
+        const filename = `${typeStr}_${acc.name.replace(/\s+/g,'_')}_${Date.now()}.jpg`;
 
-        // Mobile Friendly Download Method
         canvas.toBlob(function(blob) {
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
@@ -4912,22 +4930,20 @@ document.getElementById('btnDownloadInvoicePng').onclick = async () => {
             document.body.appendChild(link);
             link.click();
             
-            // Cleanup
             setTimeout(() => {
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
-                document.body.removeChild(tempContainer); // Remove the temp view
-                showToast('Invoice Downloaded!', 'success');
+                document.body.removeChild(tempContainer); 
+                showToast(`${typeStr} Downloaded!`, 'success');
             }, 100);
-        }, 'image/jpeg', 0.9); // Save as JPEG (smaller file size, better compatibility than PNG)
+        }, 'image/jpeg', 0.9);
         
     }).catch(err => {
         console.error(err);
         document.body.removeChild(tempContainer);
-        showToast('Error generating invoice. Try a PC.', 'error');
+        showToast('Error generating invoice.', 'error');
     });
 };
-
 
 /* =========================================
    NEW UNIFIED DELETE FUNCTION
@@ -5161,6 +5177,30 @@ document.getElementById('btnSaveInvSettings').onclick = () => {
     showToast('Invoice settings saved!', 'success');
 };
 
+
+/* --- HELPER: Calculate Month Names for Receipt --- */
+function getCoverageMonths(startDateStr, amount, monthlyFee) {
+    if (!startDateStr || amount < monthlyFee) return "Partial Payment / Deposit";
+    
+    // Calculate how many full months are covered
+    const monthsCount = Math.floor(amount / monthlyFee);
+    if (monthsCount === 0) return "Partial Payment";
+
+    // Create a date object from the billing month (e.g., "2023-10")
+    // appending "-01" to make it a full date
+    let dateCursor = new Date(startDateStr.length === 7 ? startDateStr + "-01" : startDateStr);
+    
+    let monthNames = [];
+    const opts = { month: 'short', year: 'numeric' };
+
+    for (let i = 0; i < monthsCount; i++) {
+        monthNames.push(dateCursor.toLocaleDateString('en-US', opts));
+        // Move to next month
+        dateCursor.setMonth(dateCursor.getMonth() + 1);
+    }
+
+    return monthNames.join(", ");
+}
 
 </script>
 </body>
