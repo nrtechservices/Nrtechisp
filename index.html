@@ -3766,7 +3766,7 @@ function updateQuickPayUI() {
 }
 
 // 2. Calculator: Updates the Amount field automatically
-// Updated Calculator to handle Advance Note logic better
+// REPLACE your existing calculateQuickTotal function with this one
 function calculateQuickTotal() {
     const idx = Number(document.getElementById('quickAccount').value);
     if(Number.isNaN(idx) || !accounts[idx]) return;
@@ -3782,7 +3782,11 @@ function calculateQuickTotal() {
     }
     else if (category === 'advance') {
         const months = Number(document.getElementById('quickAdvanceMonths').value) || 1;
-        amountInput.value = fee * months;
+        // Calculate the exact plan cost for X months (e.g., 499 * 2 = 998)
+        const totalPlanCost = fee * months; 
+        
+        // We set this as the default value, but user can edit it to 1000
+        amountInput.value = totalPlanCost; 
         
         // Calculate coverage text
         const startMonthStr = document.getElementById('quickBillingMonth').value; // YYYY-MM
@@ -3794,7 +3798,6 @@ function calculateQuickTotal() {
                 dateCursor.setMonth(dateCursor.getMonth() + 1);
             }
             document.getElementById('quickAdvanceCoverage').textContent = coverStr.join(", ");
-            // Set note automatically
             document.getElementById('quickNote').value = `Advance: ${coverStr.join(", ")}`;
         }
     }
@@ -3807,7 +3810,6 @@ function calculateQuickTotal() {
         if(category === 'penalty') document.getElementById('quickNote').value = "Late Penalty";
     }
 }
-
 
 // 3. Process Button Logic
 document.getElementById('btnQuickPay').onclick = () => {
@@ -4227,24 +4229,23 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 /* ============================================================
    UPDATED INVOICE GENERATOR (Specific Formulas & Advance Logic)
    ============================================================ */
+// REPLACE your existing generateInvoiceHtml function with this one
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
     
     // --- 1. SETUP VARIABLES ---
     let targetPayment = null;
     let paymentAmount = 0;
-    let paymentDate = new Date().toISOString(); // Default to today
+    let paymentDate = new Date().toISOString(); 
     let refNum = isReminder ? "REMINDER" : "REF-000";
     let paymentNote = "";
-    let paymentType = "bill"; // bill, advance, etc.
+    let paymentType = "bill"; 
     
-    // Determine which payment we are looking at (Latest, Specific, or None/Reminder)
     if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
         targetPayment = acc.payments[specificPaymentIndex];
     } else if (!isReminder && acc.payments.length > 0) {
         targetPayment = acc.payments[acc.payments.length - 1];
     }
 
-    // Extract Data from Payment
     if (targetPayment) {
         paymentAmount = Number(targetPayment.amount);
         paymentDate = targetPayment.date;
@@ -4253,47 +4254,45 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         paymentType = targetPayment.type || "bill";
     }
 
-    // Dates
     const dateObj = new Date(paymentDate);
     const displayDate = dateObj.toLocaleDateString();
     
-    // Billing Month (Request #3)
-    // If Receipt: Month of the payment. If Reminder: Month of Next Due Date.
+    // For Reminder, base it on Next Due. For Receipt, base it on Payment Date.
     const billDateRef = isReminder ? new Date(acc.nextDue) : dateObj;
     const billingMonthDisplay = billDateRef.toLocaleString('default', { month: 'long', year: 'numeric' });
-    const billingMonthFilter = billDateRef.toISOString().slice(0, 7); // YYYY-MM format for filtering charges
+    const billingMonthFilter = billDateRef.toISOString().slice(0, 7); 
 
-    // --- 2. POINTS DISPLAY (Request #3: Remove Total, keep breakdown) ---
+    // --- 2. POINTS DISPLAY ---
     const pAdv = acc.points.advance || 0;
     const pTime = acc.points.ontime || 0;
     const pLost = acc.points.lost || 0;
 
-    // --- 3. BASE PLAN CALCULATION (Request #4: Advance Logic) ---
+    // --- 3. BASE PLAN CALCULATION (Modified for Advance Logic) ---
     let planName = acc.plan.name;
     let planFee = acc.plan.fee;
     let baseAmount = planFee;
     let billingDesc = "Monthly Service Fee";
 
-    // Detect Advance Payment (Plan x Months)
+    // LOGIC: If it's an Advance Payment Receipt, multiply Plan Fee by Months Coverage
     if (!isReminder && paymentType === 'advance') {
-        // Calculate number of months based on amount paid vs plan fee
-        // We use Math.round to handle floating point errors
-        const monthsPaid = Math.round(paymentAmount / planFee) || 1;
-        baseAmount = planFee * monthsPaid;
-        billingDesc = `Advance Payment (${monthsPaid} Months)`;
-        planName += ` x ${monthsPaid}`;
+        // e.g., Paid 1000 / Plan 499 = ~2 months
+        const monthsPaid = Math.floor(paymentAmount / planFee) || 1;
+        if(monthsPaid > 1) {
+            baseAmount = planFee * monthsPaid; // e.g. 998
+            billingDesc = `Advance Payment (${monthsPaid} Months)`;
+            planName += ` x ${monthsPaid}`;
+        }
     }
 
-    // --- 4. EXTRAS CALCULATION (Charges, Penalties, Discounts) ---
+    // --- 4. EXTRAS CALCULATION ---
     let extraItemsHtml = '';
-    let totalAdditions = 0; // Charges + Penalties
+    let totalAdditions = 0; // Charges
     let totalDeductions = 0; // Discounts
-    let notesArr = []; // To hold dynamic notes for Request #1
+    let notesArr = []; 
 
-    // A. Charges & Reconnection
+    // A. Charges
     if(acc.charges) {
         acc.charges.forEach(c => {
-            // Include charges from the relevant month
             if(c.date.startsWith(billingMonthFilter) || (targetPayment && c.date === targetPayment.date)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-error);">
@@ -4301,10 +4300,6 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
                     <span>₱${Number(c.amount).toFixed(2)}</span>
                 </div>`;
                 totalAdditions += Number(c.amount);
-                
-                // Add to notes if it's a major fee
-                if(c.category === 'reconnect') notesArr.push("Includes Reconnection Fee");
-                if(c.category === 'penalty') notesArr.push("Includes Late Penalty");
             }
         });
     }
@@ -4323,7 +4318,6 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         });
     }
     
-    // C. Late Surcharge (stored inside payment object)
     if(targetPayment && targetPayment.surchargeApplied > 0) {
         extraItemsHtml += `
         <div class="therm-row" style="color:var(--toast-error);">
@@ -4331,13 +4325,12 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <span>₱${Number(targetPayment.surchargeApplied).toFixed(2)}</span>
         </div>`;
         totalAdditions += Number(targetPayment.surchargeApplied);
-        notesArr.push("Includes Late Penalty");
     }
 
-    // --- 5. CALCULATE TOTALS (Specific Formulas per Request) ---
+    // --- 5. CALCULATE TOTALS (Specific Formula Application) ---
     
-    // Subtotal (Used in both formulas)
-    // Formula: Plan + Items + Penalty - Discount
+    // SUBTOTAL = Plan(s) + Charges + Penalty - Discount
+    // e.g. 998 + 0 + 0 - 0 = 998
     let subTotal = baseAmount + totalAdditions - totalDeductions;
     
     let finalRowLabel = "";
@@ -4347,40 +4340,37 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
 
     if (isReminder) {
         // --- FORMULA 1: REMINDER ---
-        // Subtotal - Excess OR + Lacking = Total Amount to Pay
+        // Subtotal (499) - Excess Balance (2) = Total (497)
         
-        // Logic: 
-        // excessLackingBalance > 0 means Customer has Money (Excess) -> Subtract from Bill
-        // excessLackingBalance < 0 means Customer owes Money (Lacking/Debt) -> Add to Bill
-        
-        const currentBalance = acc.excessLackingBalance; // Snapshot of current wallet
+        const currentBalance = acc.excessLackingBalance; 
         
         let adjustmentHtml = "";
         let adjustmentVal = 0;
 
+        // If Balance is positive (Excess), we SUBTRACT it from bill
         if (currentBalance > 0) {
-             // Customer has excess, subtract it
              adjustmentHtml = `
              <div class="therm-row" style="font-size: 12px; color: var(--accent-2);">
                 <span>Less: Wallet Excess</span>
                 <span>-₱${Math.abs(currentBalance).toFixed(2)}</span>
              </div>`;
-             adjustmentVal = -currentBalance;
-        } else if (currentBalance < 0) {
-             // Customer has debt (Lacking), add it
+             adjustmentVal = currentBalance; // Positive 2
+        } 
+        // If Balance is negative (Lacking/Debt), we ADD it to bill
+        else if (currentBalance < 0) {
              adjustmentHtml = `
              <div class="therm-row" style="font-size: 12px; color: red;">
                 <span>Add: Previous Lacking</span>
                 <span>+₱${Math.abs(currentBalance).toFixed(2)}</span>
              </div>`;
-             adjustmentVal = Math.abs(currentBalance); // Add the positive version of the debt
+             adjustmentVal = currentBalance; // Negative number
         }
 
-        // Calculation
-        let totalToPay = subTotal + adjustmentVal;
-        if(totalToPay < 0) totalToPay = 0; // Cannot pay negative
+        // CALCULATION: Subtotal - Excess (or + Lacking)
+        let totalToPay = subTotal - adjustmentVal; 
+        
+        if(totalToPay < 0) totalToPay = 0; 
 
-        // Construct Middle Section
         middleRowHtml = `
             <div class="therm-divider"></div>
             <div class="therm-row" style="font-weight:700;">
@@ -4390,27 +4380,23 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             ${adjustmentHtml}
         `;
 
-        // Final Result
         finalRowLabel = "TOTAL AMOUNT TO PAY";
-        finalValue = totalToPay;
+        finalValue = totalToPay; // 497
         finalColor = "black";
 
     } else {
-        // --- FORMULA 2: RECEIPT ---
-        // Subtotal - Amount Paid = Balance (Excess/Lacking)
-        // Note: We use the actual system balance if available for accuracy, 
-        // but visually we follow the user's flow requests.
+        // --- FORMULA 2: RECEIPT (Advance Logic) ---
+        // Subtotal (998) - Amount Paid (1000) = Balance (-2, but shown as Excess 2)
+        
+        // Visual Balance for Receipt = Amount Paid - Subtotal
+        // 1000 - 998 = 2 (Excess)
+        // 1000 - 1500 = -500 (Lacking)
+        let receiptBalance = paymentAmount - subTotal;
 
-        // Get the balance resulting from THIS payment (snapshot)
-        let balanceSnapshot = (targetPayment && targetPayment.balanceApplied !== undefined) 
-                              ? targetPayment.balanceApplied 
-                              : acc.excessLackingBalance;
-
-        // Construct Middle Section
         middleRowHtml = `
             <div class="therm-divider"></div>
             <div class="therm-row" style="font-weight:700;">
-                <span>SUBTOTAL (Total Due)</span>
+                <span>SUBTOTAL</span>
                 <span>₱${subTotal.toFixed(2)}</span>
             </div>
             <div class="therm-row" style="font-size: 14px; margin-top: 5px;">
@@ -4419,26 +4405,21 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             </div>
         `;
 
-        // Final Result (Logic for No +/- signs)
-        if (balanceSnapshot >= 0) {
-            finalRowLabel = "REMAINING EXCESS (WALLET)";
-            finalValue = balanceSnapshot; // Positive number
-            finalColor = "var(--accent-2)"; // Gold/Orange
+        if (receiptBalance >= 0) {
+            finalRowLabel = "EXCESS BALANCE (WALLET)";
+            finalValue = receiptBalance; // Show 2.00
+            finalColor = "var(--accent-2)"; 
         } else {
-            finalRowLabel = "REMAINING LACKING (BALANCE)";
-            finalValue = Math.abs(balanceSnapshot); // Show absolute number
+            finalRowLabel = "LACKING BALANCE";
+            finalValue = Math.abs(receiptBalance); 
             finalColor = "red";
         }
     }
 
-    // Dynamic Note Generation
     let invoiceNote = paymentNote;
-    if(notesArr.length > 0) {
-        invoiceNote += (invoiceNote ? " | " : "") + notesArr.join(", ");
-    }
+    if(notesArr.length > 0) invoiceNote += (invoiceNote ? " | " : "") + notesArr.join(", ");
     const footerMsg = invSettings.footer || (isReminder ? "Please pay before due date." : "Thank you for your payment!");
 
-    // --- 6. HTML OUTPUT ---
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
@@ -4485,7 +4466,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         <div class="therm-row" style="font-size: 15px; font-weight: 800; margin-top:5px;">
             <span>${finalRowLabel}</span>
             <span style="color:${finalColor}">
-                ₱${finalValue.toFixed(2)}
+                ${finalValue < 0 ? '-' : ''}₱${Math.abs(finalValue).toFixed(2)}
             </span>
         </div>
         
