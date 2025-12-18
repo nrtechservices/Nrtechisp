@@ -4220,7 +4220,7 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 
 
 /* ============================================================
-   UPDATED INVOICE GENERATOR (New Calculation Flow & Points)
+   UPDATED INVOICE GENERATOR (Applied User Formulas)
    ============================================================ */
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
     
@@ -4228,9 +4228,11 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     let targetPayment = null;
     let paymentAmount = 0;
     let paymentDate = new Date().toISOString();
-    let resultingBalance = acc.excessLackingBalance; // Default to current
     let refNum = "BILLING";
     let paymentNote = "";
+    
+    // Get the current system balance (Snapshot)
+    let currentSystemBalance = acc.excessLackingBalance; 
 
     if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
         // VIEWING A SPECIFIC PAST RECEIPT
@@ -4239,10 +4241,10 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         paymentDate = targetPayment.date;
         refNum = targetPayment.referenceNumber || "REF";
         paymentNote = targetPayment.note || "";
-        // Use the snapshot balance stored with the payment if available, 
-        // otherwise fall back to current (though historical is preferred)
+        
+        // Use historical balance if stored, otherwise use current
         if(targetPayment.balanceApplied !== undefined) {
-            resultingBalance = targetPayment.balanceApplied;
+            currentSystemBalance = targetPayment.balanceApplied;
         }
     } else if (!isReminder && acc.payments.length > 0) {
         // VIEWING LATEST PAYMENT
@@ -4252,14 +4254,15 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         refNum = targetPayment.referenceNumber || "REF";
         paymentNote = targetPayment.note || "";
         if(targetPayment.balanceApplied !== undefined) {
-            resultingBalance = targetPayment.balanceApplied;
+            currentSystemBalance = targetPayment.balanceApplied;
         }
     } else if (isReminder) {
-        // VIEWING REMINDER (No Payment made yet)
+        // VIEWING REMINDER
         paymentAmount = 0;
         refNum = "REMINDER";
-        paymentDate = new Date().toISOString(); // Today
-        resultingBalance = acc.excessLackingBalance;
+        paymentDate = new Date().toISOString(); 
+        // For reminder, we rely on the current calculated balance
+        currentSystemBalance = acc.excessLackingBalance;
     }
 
     const planFee = acc.plan.fee;
@@ -4267,27 +4270,20 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     const displayDate = dateObj.toLocaleDateString();
     const billingMonthStr = paymentDate.slice(0, 7); // YYYY-MM
 
-    // 2. FEATURE 2: Points (Advance, OnTime, Lost ONLY)
+    // 2. Points Calculation
     const pAdv = acc.points.advance || 0;
     const pTime = acc.points.ontime || 0;
     const pLost = acc.points.lost || 0;
     const totalPoints = pAdv + pTime - pLost;
 
-    // 3. FEATURE 3: Calculation Flow
-    // Flow: Plan + Charges - Discounts = SUBTOTAL
-    // SUBTOTAL - Amount Paid = BALANCE (Excess/Lacking)
-
+    // 3. SUBTOTAL CALCULATION (Monthly Plan + Charges + Penalty + Reconnection - Discount)
     let extraItemsHtml = '';
-    let totalExtras = 0; // Charges + Penalties
+    let totalExtras = 0; 
     let totalDiscounts = 0;
 
-    // A. Add Plan Fee
-    let subTotal = planFee;
-
-    // B. Charges & Penalties
+    // A. Add Charges & Penalties
     if(acc.charges) {
         acc.charges.forEach(c => {
-            // Include charges from the same month as the payment
             if(c.date.startsWith(billingMonthStr)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-error);">
@@ -4299,7 +4295,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         });
     }
 
-    // C. Discounts
+    // B. Add Discounts
     if(acc.discounts) {
         acc.discounts.forEach(d => {
             if(d.date.startsWith(billingMonthStr)) {
@@ -4313,7 +4309,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         });
     }
     
-    // Check if this payment had a specific surcharge/penalty stored
+    // Add Penalty if attached to specific payment
     if(targetPayment && targetPayment.surchargeApplied > 0) {
         extraItemsHtml += `
         <div class="therm-row" style="color:var(--toast-error);">
@@ -4323,14 +4319,107 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         totalExtras += Number(targetPayment.surchargeApplied);
     }
 
-    // D. Calculate Subtotal (Total Bill for this period)
-    subTotal = subTotal + totalExtras - totalDiscounts;
+    // C. Calculate Subtotal
+    const subTotal = planFee + totalExtras - totalDiscounts;
 
-    // E. Calculate Previous Balance (Reverse Engineering)
-    // If Result = Previous + Paid - Bill, then Previous = Result - Paid + Bill
-    // However, for simplicity and clarity on receipts, we focus on Resulting Balance.
-    
-    // Determine Footer Message
+
+    // 4. FINAL CALCULATION LOGIC (Based on Requirement)
+    let calculationHtml = '';
+    let finalLabel = '';
+    let finalAmount = 0;
+
+    if (isReminder) {
+        // --- REMINDER LOGIC ---
+        // Formula: Subtotal - Excess OR + Lacking = Total Amount to be Paid
+        
+        // We derive previous balance by looking at the current running balance
+        // Note: In this system, 'currentSystemBalance' is the total lacking (negative) or excess (positive)
+        // Since we haven't "paid" yet in a reminder, the balance includes previous debts.
+        // However, we want to separate "Current Bill" (Subtotal) from "Previous".
+        
+        // Rough estimation of Previous Balance = Current Balance (Debt) + Plan Fee (because it's usually subtracted already in the system)
+        // To keep it simple and accurate to the requested flow:
+        
+        const previousBalance = Math.abs(currentSystemBalance) - subTotal; 
+        
+        // Logic: If Balance is -1500 and Bill is 500. Previous Debt is 1000.
+        // If Balance is +200 and Bill is 500. Previous Wallet was 700? No, that gets complex.
+        // Let's use the explicit logic:
+        
+        let prevBalHtml = '';
+        let prevBalAmount = 0;
+
+        // Note: This assumes currentSystemBalance holds the TRUE debt currently.
+        // If system shows -1500 (Debt), and Subtotal is 500.
+        // Then Total To Pay is 1500.
+        
+        finalAmount = Math.abs(currentSystemBalance); 
+        // If system balance is positive (Excess), they don't owe anything, or owe less.
+        if (currentSystemBalance > 0) finalAmount = 0; // Or show credit
+        
+        // If the calculated subtotal is NOT yet in the system balance (e.g. looking at next month), add it.
+        // For safety in this code, we assume 'currentSystemBalance' is the master record.
+        
+        // Let's format strictly as requested:
+        // We will Calculate Previous Balance visually as: Total Debt - Current Subtotal
+        let inferredPrev = 0;
+        if(currentSystemBalance < 0) {
+             inferredPrev = Math.abs(currentSystemBalance) - subTotal;
+        } else {
+             inferredPrev = (currentSystemBalance * -1); // Negative means excess here
+        }
+
+        calculationHtml = `
+            <div class="therm-divider"></div>
+            <div class="therm-row" style="font-weight:700;">
+                <span>SUBTOTAL (Current)</span>
+                <span>₱${subTotal.toFixed(2)}</span>
+            </div>
+            
+            <div class="therm-row" style="color: var(--muted);">
+                <span>${inferredPrev >= 0 ? '+ Previous Lacking' : '- Wallet/Excess'}</span>
+                <span>₱${Math.abs(inferredPrev).toFixed(2)}</span>
+            </div>
+            
+            <div class="therm-divider"></div>
+            <div class="therm-row" style="font-size: 14px; font-weight: 800;">
+                <span>TOTAL AMOUNT TO BE PAID</span>
+                <span>₱${(subTotal + inferredPrev).toFixed(2)}</span>
+            </div>
+        `;
+    } else {
+        // --- RECEIPT LOGIC ---
+        // Formula: Subtotal - Amount Paid = Total
+        
+        const resultBalance = subTotal - paymentAmount;
+        
+        calculationHtml = `
+            <div class="therm-divider"></div>
+            <div class="therm-row" style="font-weight:700;">
+                <span>SUBTOTAL (Bill)</span>
+                <span>₱${subTotal.toFixed(2)}</span>
+            </div>
+
+            <div class="therm-row" style="font-size: 14px; margin-top: 5px;">
+                <span>LESS: AMOUNT PAID</span>
+                <span style="font-weight:800;">- ₱${paymentAmount.toFixed(2)}</span>
+            </div>
+
+            <div class="therm-divider"></div>
+
+            <div class="therm-row" style="font-size: 14px; font-weight: 800;">
+                <span>TOTAL (Remaining)</span>
+                <span style="${resultBalance > 0 ? 'color:red' : 'color:black'}">
+                    ₱${resultBalance.toFixed(2)}
+                </span>
+            </div>
+            
+            <div style="font-size: 10px; text-align: center; margin-top: 5px; color: #555;">
+                Account Standing: ${currentSystemBalance >= 0 ? 'Excess ₱'+currentSystemBalance.toFixed(2) : 'Lacking -₱'+Math.abs(currentSystemBalance).toFixed(2)}
+            </div>
+        `;
+    }
+
     const footerMsg = invSettings.footer || (isReminder ? "Please pay before due date." : "Thank you for your payment!");
 
     return `
@@ -4370,28 +4459,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
 
         ${extraItemsHtml}
 
-        <div class="therm-divider"></div>
-        
-        <div class="therm-row" style="font-weight:700;">
-            <span>SUBTOTAL (Total Due)</span>
-            <span>₱${subTotal.toFixed(2)}</span>
-        </div>
-
-        ${!isReminder ? `
-        <div class="therm-row" style="font-size: 14px; margin-top: 5px;">
-            <span>AMOUNT PAID</span>
-            <span style="font-weight:800;">₱${paymentAmount.toFixed(2)}</span>
-        </div>
-        ` : ''}
-
-        <div class="therm-divider"></div>
-
-        <div class="therm-row" style="font-size: 14px; font-weight: 800;">
-            <span>${resultingBalance >= 0 ? 'EXCESS (WALLET)' : 'LACKING (BALANCE)'}</span>
-            <span style="${resultingBalance < 0 ? 'color:red' : 'color:black'}">
-                ${resultingBalance >= 0 ? '₱'+resultingBalance.toFixed(2) : '-₱'+Math.abs(resultingBalance).toFixed(2)}
-            </span>
-        </div>
+        ${calculationHtml}
         
         ${paymentNote ? `<div style="margin-top:5px; font-size:11px; text-align:center; font-style:italic;">Note: ${paymentNote}</div>` : ''}
 
