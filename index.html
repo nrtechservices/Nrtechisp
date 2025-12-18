@@ -3179,30 +3179,58 @@ function autoGeneratePPPoEPass() {
     document.getElementById('newAccPPPass').value = surname;
 }
 
-// create
+/* =========================
+   UPDATED ACCOUNT CREATION (DEFAULTS & AUTO-GEN)
+   ========================= */
 document.getElementById('createAcc').onclick = ()=>{
   const accNum = document.getElementById('newAccNumber').value.trim();
   if(!accNum) return showToast('Account number required', 'error');
+  
   const name = document.getElementById('newAccName').value.trim() || 'Unknown';
   if(!name) return showToast('Customer name required', 'error');
-  const addr = document.getElementById('newAccAddress').value.trim() || '';
-  const contact = document.getElementById('newAccContact').value.trim() || '';
-  const messengerId = document.getElementById('newAccMessengerId').value.trim() || '';
+
+  // --- CHANGED: Default to "N/A" if empty ---
+  const addr = document.getElementById('newAccAddress').value.trim() || 'N/A';
+  const contact = document.getElementById('newAccContact').value.trim() || 'N/A';
+  const messengerId = document.getElementById('newAccMessengerId').value.trim() || 'N/A';
+  
   const [pname,pfee,pspeed] = document.getElementById('newAccPlan').value.split('|');
   const billingDay = FIXED_BILLING_DAY;
+  
   const user = document.getElementById('newAccPPPoE').value.trim() || '';
   const pass = document.getElementById('newAccPPPass').value.trim() || '';
   const status = document.getElementById('newAccStatus').value || 'Active';
+
   const acc = {
-    accountNumber: accNum, name, address: addr, contact, messengerId,
+    accountNumber: accNum, 
+    name, 
+    address: addr, 
+    contact, 
+    messengerId,
     plan:{name:pname, fee:Number(pfee), speed:pspeed},
-    billingDay, status, pppoeUsername:user, pppoePassword:pass,
-    payments:[], points:{advance:0,ontime:0,lost:0}, nextDue: computeNextDue(null,billingDay),
+    billingDay, 
+    status, 
+    pppoeUsername: user, 
+    pppoePassword: pass,
+    
+    // --- CHANGED: Auto-generate Client Portal Credentials from PPPoE ---
+    clientUsername: user, // Defaults to PPPoE Username
+    clientPassword: pass, // Defaults to PPPoE Password
+    
+    payments:[], 
+    points:{advance:0,ontime:0,lost:0}, 
+    nextDue: computeNextDue(null,billingDay),
     excessLackingBalance: 0,
     createdAt:new Date().toISOString()
   };
-  accounts.push(acc); saveAccounts(); modalAddBackdrop.style.display='none'; showToast('Account created successfully.', 'success'); renderAccounts();
+
+  accounts.push(acc); 
+  saveAccounts(); 
+  modalAddBackdrop.style.display='none'; 
+  showToast(`Account created! Client Login: ${user} / ${pass}`, 'success'); 
+  renderAccounts();
 };
+
 
 document.getElementById('btnExport').onclick = () => {
     // 1. Prepare Data
@@ -3890,10 +3918,8 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 }
 
 
-// --- REPLACE YOUR generateInvoiceHtml FUNCTION ---
-
 /* =========================
-   UPDATED INVOICE GENERATOR
+   UPDATED INVOICE GENERATOR (WITH GCASH & POINTS BREAKDOWN)
    ========================= */
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
     
@@ -3908,9 +3934,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     const today = new Date();
     const planFee = acc.plan.fee;
     
-    // 2. TRANSPARENCY CONTEXT DATE
-    // If it's a specific payment, use that payment's date (YYYY-MM)
-    // If it's a reminder, use the Next Due date (YYYY-MM)
+    // 2. Context Date
     let contextDateStr = isReminder 
         ? new Date(acc.nextDue).toISOString().slice(0, 7) 
         : (targetPayment ? targetPayment.date.slice(0, 7) : today.toISOString().slice(0, 7));
@@ -3918,18 +3942,18 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     const displayDate = targetPayment ? new Date(targetPayment.date).toLocaleDateString() : today.toLocaleDateString();
     const refNum = targetPayment ? (targetPayment.referenceNumber || "REF") : "BILLING";
     
-    // 3. POINTS CALCULATION (Total Points)
-    // Requirement: Show points on invoice
-    const totalPoints = (acc.points.advance || 0) + (acc.points.ontime || 0) - (acc.points.lost || 0);
+    // 3. POINTS CALCULATION (Breakdown)
+    const pAdv = acc.points.advance || 0;
+    const pTime = acc.points.ontime || 0;
+    const pLost = acc.points.lost || 0;
+    const totalPoints = pAdv + pTime - pLost;
 
-    // 4. GATHER TRANSPARENT ITEMS (Charges/Discounts for THIS specific month)
+    // 4. GATHER TRANSPARENT ITEMS (Charges/Discounts)
     let extraItemsHtml = '';
     let totalExtras = 0;
 
-    // Filter Charges
     if(acc.charges) {
         acc.charges.forEach(c => {
-            // Check if charge date matches the invoice context month
             if(c.date.startsWith(contextDateStr)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-error);">
@@ -3941,7 +3965,6 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         });
     }
 
-    // Filter Discounts
     if(acc.discounts) {
         acc.discounts.forEach(d => {
             if(d.date.startsWith(contextDateStr)) {
@@ -3960,7 +3983,6 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     let balanceRowHtml = '';
     
     if(isReminder) {
-        // For Reminder: Plan Fee + Extras +/- Previous Balance
         const currentBalance = acc.excessLackingBalance; 
         const nextBillAmount = planFee + totalExtras;
         let grandTotal = nextBillAmount;
@@ -3974,11 +3996,9 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         }
         amountDisplay = grandTotal;
     } else {
-        // For Receipt: Just the amount paid
         amountDisplay = Number(targetPayment.amount);
     }
 
-    // 6. SETTINGS
     const footerMsg = invSettings.footer || (isReminder ? "Please pay before due date." : "Thank you for your payment!");
 
     return `
@@ -3998,7 +4018,12 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         </div>
         
         <div class="therm-points-box">
-            <b>Loyalty Points: ${totalPoints}</b>
+            <div style="font-weight:bold; margin-bottom:2px;">LOYALTY POINTS: ${totalPoints}</div>
+            <div style="display:flex; justify-content:space-around; font-size:10px;">
+                <span>Adv: ${pAdv}</span>
+                <span>On-Time: ${pTime}</span>
+                <span>Lost: ${pLost}</span>
+            </div>
         </div>
 
         <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">
@@ -4029,6 +4054,16 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         <div style="margin-top:5px; font-size:11px; text-align:center;">
             Note: ${targetPayment.note || 'Payment Received'}
         </div>` : ''}
+
+        <div style="margin-top: 15px; border-top: 2px dashed #000; padding-top: 10px; text-align: center;">
+            <div style="font-weight: 800; margin-bottom: 5px;">PAY VIA GCASH</div>
+            <img src="gcash-qr.png" style="width: 100px; height: 100px; border: 2px solid #000;">
+            <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">0931-792-6807</div>
+            <div style="font-size: 10px;">NO***L JO*N R.</div>
+            <div style="font-size: 10px; margin-top: 5px; font-style: italic;">
+                Note: Simply scan the QR code using your GCash app to pay.
+            </div>
+        </div>
 
         <div class="therm-footer">
             <br>
