@@ -2969,20 +2969,33 @@ function openAccount(idx){
         };
     }
 
+        // ... inside openAccount function loop ...
+
     tr.innerHTML = `
         <td>${new Date(t.date).toLocaleDateString()}</td>
-        <td>${t.ref || ''}</td> <td class="${t.type === 'charge' ? 'text-danger' : 'text-success'}" style="font-weight:700">
+        <td>${t.ref || ''}</td> 
+        <td class="${t.type === 'charge' ? 'text-danger' : 'text-success'}" style="font-weight:700">
             ${t.type === 'payment' ? 'Payment' : t.type.charAt(0).toUpperCase() + t.type.slice(1)}
         </td>
         <td>${t.note || ''}</td>
         <td style="text-align:right">₱${Number(t.amount).toFixed(2)}</td>
-        <td class="no-print">
-          <button class="small ghost" style="color:red; border-color:red;" 
+        <td class="no-print" style="display:flex; gap:5px; justify-content:flex-end;">
+          
+          ${t.type === 'payment' ? `
+            <button class="small ghost" title="Download PNG Receipt"
+                onclick="event.stopPropagation(); downloadTransactionPng(${activeAccountIndex}, ${t.originalIndex})">
+                ⬇️
+            </button>
+          ` : ''}
+
+          <button class="small ghost" style="color:red; border-color:red;" title="Delete"
               onclick="event.stopPropagation(); deleteTransaction(${activeAccountIndex}, '${t.type}', ${t.originalIndex})">
               🗑️
           </button>
         </td>
     `;
+    // ... rest of code ...
+
     paymentsTbody.appendChild(tr);
   });
 
@@ -3979,15 +3992,17 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 }
 
 
-/* =========================
-   UPDATED INVOICE GENERATOR (WITH GCASH & POINTS BREAKDOWN)
-   ========================= */
-/* --- REPLACE YOUR EXISTING generateInvoiceHtml FUNCTION WITH THIS --- */
+/* ============================================================
+   UPDATED INVOICE GENERATOR (New Calculation Flow & Points)
+   ============================================================ */
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
     
-    // 1. Determine Payment to show
+    // 1. Determine Payment and Dates
     let targetPayment = null;
-    if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
+    // Find the specific payment object if index provided
+    if (specificPaymentIndex !== null) {
+        // We have to find the payment in the account's payment array that matches the index
+        // Since we are sorting in the view, we passed the 'originalIndex' from the openAccount logic
         targetPayment = acc.payments[specificPaymentIndex];
     } else if (!isReminder && acc.payments.length > 0) {
         targetPayment = acc.payments[acc.payments.length - 1]; 
@@ -3996,71 +4011,72 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     const today = new Date();
     const planFee = acc.plan.fee;
     
-    // 2. Context Date & Coverage
+    // Context Date (Current Month or Payment Month)
     let contextDateStr = isReminder 
         ? new Date(acc.nextDue).toISOString().slice(0, 7) 
         : (targetPayment ? targetPayment.date.slice(0, 7) : today.toISOString().slice(0, 7));
 
     const displayDate = targetPayment ? new Date(targetPayment.date).toLocaleDateString() : today.toLocaleDateString();
     const refNum = targetPayment ? (targetPayment.referenceNumber || "REF") : "BILLING";
-    
-    // REQUIREMENT 1 & 3: Multi-month Coverage Text
-    let coverageText = "";
-    if (!isReminder && targetPayment) {
-        coverageText = calculateMonthsCovered(targetPayment.date, targetPayment.amount, planFee);
-    }
 
-    // REQUIREMENT 1: Simplify Points (Only Advance, Ontime, Lost)
+    // 2. POINTS DISPLAY (Requirement: Only Adv, OnTime, Lost)
     const pAdv = acc.points.advance || 0;
     const pTime = acc.points.ontime || 0;
     const pLost = acc.points.lost || 0;
-    const totalPoints = pAdv + pTime - pLost;
 
-    // 4. GATHER TRANSPARENT ITEMS (Charges/Discounts)
+    // 3. CALCULATE SUBTOTAL (Plan + Charges - Discounts)
+    let totalCharges = 0;
+    let totalDiscounts = 0;
     let extraItemsHtml = '';
-    let totalExtras = 0;
 
+    // Sum Charges for this month
     if(acc.charges) {
         acc.charges.forEach(c => {
             if(c.date.startsWith(contextDateStr)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-error);">
-                    <span>[+] ${c.note || 'Extra Charge'}</span>
+                    <span>+ ${c.note || 'Extra Charge'}</span>
                     <span>₱${Number(c.amount).toFixed(2)}</span>
                 </div>`;
-                totalExtras += Number(c.amount);
+                totalCharges += Number(c.amount);
             }
         });
     }
 
-    // 5. CALCULATE TOTALS
-    let amountDisplay = 0;
-    let balanceRowHtml = '';
-    let reminderNote = "";
-    
-    if(isReminder) {
-        const currentBalance = acc.excessLackingBalance; 
-        const nextBillAmount = planFee + totalExtras;
-        let grandTotal = nextBillAmount;
-
-        // REQUIREMENT 4: Detailed Unpaid Payments / Nice Note
-        if(currentBalance > 0) {
-            balanceRowHtml = `<div class="therm-row" style="color:var(--toast-success);"><span>Less: Advance Wallet</span><span>-₱${currentBalance.toFixed(2)}</span></div>`;
-            grandTotal = Math.max(0, nextBillAmount - currentBalance);
-            reminderNote = "Your advance payment has been applied. Thank you!";
-        } else if (currentBalance < 0) {
-            // Negative balance means they owe money from previous months
-            balanceRowHtml = `<div class="therm-row" style="color:var(--toast-error);"><span>Plus: Previous Unpaid</span><span>₱${Math.abs(currentBalance).toFixed(2)}</span></div>`;
-            grandTotal = nextBillAmount + Math.abs(currentBalance);
-            reminderNote = "Friendly Reminder: Please settle your previous balance along with this month's bill to ensure uninterrupted service. Thank you!";
-        } else {
-             reminderNote = "Please pay before the due date to avoid service interruption.";
-        }
-        amountDisplay = grandTotal;
-    } else {
-        amountDisplay = Number(targetPayment.amount);
+    // Sum Discounts for this month
+    if(acc.discounts) {
+        acc.discounts.forEach(d => {
+            if(d.date.startsWith(contextDateStr)) {
+                extraItemsHtml += `
+                <div class="therm-row" style="color:var(--toast-success);">
+                    <span>- ${d.note || 'Discount'}</span>
+                    <span>₱${Number(d.amount).toFixed(2)}</span>
+                </div>`;
+                totalDiscounts += Number(d.amount);
+            }
+        });
     }
 
+    // Mathematical Flow
+    const subTotalBill = planFee + totalCharges - totalDiscounts;
+    
+    // Determine Amount Paid
+    let amountPaid = 0;
+    if(!isReminder && targetPayment) {
+        amountPaid = Number(targetPayment.amount);
+    }
+
+    // Determine Previous Balance (This is approximate based on current state for receipts)
+    // For a perfect ledger, we'd need snapshotting, but using current running balance logic:
+    // New Balance = Previous Balance + Amount Paid - SubtotalBill
+    // Therefore: Previous Balance = New Balance - Amount Paid + SubtotalBill
+    
+    // However, for the RECEIPT visual requested:
+    // We compare Subtotal vs Amount Paid to show the resulting balance impact
+    
+    const currentRunningBalance = acc.excessLackingBalance; // The final balance of the account
+    
+    // Message Logic
     const footerMsg = invSettings.footer || (isReminder ? "Keep this receipt for your records." : "Thank you for your payment!");
 
     return `
@@ -4080,53 +4096,51 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         </div>
         
         <div class="therm-points-box">
-            <div style="font-weight:bold; margin-bottom:2px;">LOYALTY POINTS: ${totalPoints}</div>
-            <div style="display:flex; justify-content:space-around; font-size:10px;">
-                <span>Adv: ${pAdv}</span>
-                <span>On-Time: ${pTime}</span>
-                <span>Lost: ${pLost}</span>
+            <div style="display:flex; justify-content:space-between; font-weight:700; font-size:11px;">
+                <span>ADV: ${pAdv}</span>
+                <span>ON-TIME: ${pTime}</span>
+                <span>LOST: ${pLost}</span>
             </div>
         </div>
 
         <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">
-            ${isReminder ? 'BILLING REMINDER' : 'OFFICIAL RECEIPT'}
+            ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
         </div>
 
-        <div class="therm-row">
-            <span>Description</span>
-            <span>Amount</span>
-        </div>
+        <div style="margin-bottom: 5px; font-weight:700; border-bottom: 1px solid #ddd;">BILL PARTICULARS</div>
         
         <div class="therm-row">
-            <span>Internet Plan ${coverageText}</span>
+            <span>Internet Plan (Monthly)</span>
             <span>₱${planFee.toFixed(2)}</span>
         </div>
-
         ${extraItemsHtml}
-        ${balanceRowHtml}
+
+        <div class="therm-row" style="border-top: 1px dashed #000; padding-top: 5px; margin-top: 5px; font-weight: 700;">
+            <span>SUBTOTAL (Current Bill)</span>
+            <span>₱${subTotalBill.toFixed(2)}</span>
+        </div>
+
+        <br>
+        
+        <div class="therm-row" style="font-size: 13px;">
+            <span>AMOUNT PAID</span>
+            <span style="font-weight:700;">₱${amountPaid.toFixed(2)}</span>
+        </div>
 
         <div class="therm-divider"></div>
 
         <div class="therm-row" style="font-size: 16px; font-weight: 800;">
-            <span>${isReminder ? 'TOTAL DUE' : 'AMOUNT PAID'}:</span>
-            <span>₱${amountDisplay.toFixed(2)}</span>
+            <span>TOTAL BALANCE:</span>
+            <span style="${currentRunningBalance >= 0 ? 'color:black' : 'color:red'}">
+                ${currentRunningBalance >= 0 ? '(Excess) ' : '(Lacking) '}
+                ₱${Math.abs(currentRunningBalance).toFixed(2)}
+            </span>
         </div>
 
-        ${!isReminder ? `
+        ${!isReminder && targetPayment ? `
         <div style="margin-top:5px; font-size:11px; text-align:center;">
             Note: ${targetPayment.note || 'Payment Received'}
-        </div>` : `
-        <div style="margin-top:5px; font-size:11px; text-align:center; font-style: italic; color: #555;">
-            "${reminderNote}"
-        </div>
-        `}
-
-        <div style="margin-top: 15px; border-top: 2px dashed #000; padding-top: 10px; text-align: center;">
-            <div style="font-weight: 800; margin-bottom: 5px;">PAY VIA GCASH</div>
-            <img src="gcash-qr.png" style="width: 100px; height: 100px; border: 2px solid #000;">
-            <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">0931-792-6807</div>
-            <div style="font-size: 10px;">NO***L JO*N R.</div>
-        </div>
+        </div>` : ``}
 
         <div class="therm-footer">
             <br>
@@ -5384,6 +5398,63 @@ document.getElementById('btnNetworkAgreement').onclick = async () => {
 
     document.body.appendChild(tempContainer);
 };
+
+/* ============================================================
+   NEW FUNCTION: Download Specific Transaction as PNG
+   ============================================================ */
+function downloadTransactionPng(accIdx, payIdx) {
+    const acc = accounts[accIdx];
+    
+    showToast('Generating Receipt Image...', 'info');
+
+    // 1. Generate the HTML using the updated calculator flow
+    // We pass 'false' for reminder, and payIdx to get specific data
+    const htmlContent = generateInvoiceHtml(acc, false, payIdx);
+
+    // 2. Create a temporary container off-screen
+    const tempContainer = document.createElement('div');
+    tempContainer.style.position = 'fixed';
+    tempContainer.style.top = '0';
+    tempContainer.style.left = '0';
+    tempContainer.style.width = '100%';
+    tempContainer.style.background = '#ffffff'; 
+    tempContainer.style.zIndex = '9999'; // On top of everything
+    tempContainer.style.display = 'flex';
+    tempContainer.style.justifyContent = 'center';
+    tempContainer.style.alignItems = 'flex-start'; // Align top
+    tempContainer.style.padding = '20px';
+    
+    // Insert the HTML
+    tempContainer.innerHTML = htmlContent;
+    document.body.appendChild(tempContainer);
+
+    // 3. Find the invoice element inside
+    const targetElement = tempContainer.querySelector('.invoice-thermal');
+
+    // 4. Capture
+    html2canvas(targetElement, {
+        scale: 2, // High quality
+        useCORS: true,
+        backgroundColor: '#ffffff'
+    }).then(canvas => {
+        // 5. Download
+        const link = document.createElement('a');
+        link.href = canvas.toDataURL('image/png');
+        const dateStr = new Date().toISOString().slice(0,10);
+        link.download = `RECEIPT_${acc.accountNumber}_${dateStr}.png`;
+        document.body.appendChild(link);
+        link.click();
+        
+        // 6. Cleanup
+        document.body.removeChild(link);
+        document.body.removeChild(tempContainer);
+        showToast('Receipt Downloaded!', 'success');
+    }).catch(err => {
+        console.error(err);
+        document.body.removeChild(tempContainer);
+        showToast('Error generating image.', 'error');
+    });
+}
 
 </script>
 </body>
