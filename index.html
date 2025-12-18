@@ -1101,6 +1101,97 @@
 .rank-2 { background: linear-gradient(135deg, #E0E0E0, #BDBDBD); color: white; border: none; }
 .rank-3 { background: linear-gradient(135deg, #CD7F32, #A0522D); color: white; border: none; }
 
+/* Update this in your  tag */
+.col-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px; /* Increased gap to match Tally margin */
+    align-items: stretch; /* Forces both boxes to be the same height */
+}
+
+/* Mobile adjustment */
+@media (max-width: 600px) {
+    .col-2 { grid-template-columns: 1fr; }
+}
+
+
+/* --- BANDWIDTH MONITOR STYLES --- */
+.bw-monitor-card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    margin-top: 20px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+}
+.bw-flex {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 15px;
+}
+.bw-input-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--bg);
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+}
+.bw-input-group input {
+    width: 100px;
+    border: none;
+    background: transparent;
+    font-weight: 700;
+    color: var(--accent-2);
+    font-size: 16px;
+    text-align: right;
+}
+.bw-input-group input:focus { outline: none; box-shadow: none; }
+
+.progress-track {
+    width: 100%;
+    height: 12px;
+    background: #e0e0e0;
+    border-radius: 99px;
+    margin-top: 15px;
+    overflow: hidden;
+    position: relative;
+}
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4CAF50, #8BC34A);
+    width: 0%;
+    border-radius: 99px;
+    transition: width 0.5s ease-in-out, background 0.3s;
+}
+/* Warning State Colors */
+.progress-fill.warning { background: linear-gradient(90deg, #FFC107, #FF9800); }
+.progress-fill.danger { background: linear-gradient(90deg, #F44336, #D32F2F); }
+
+.bw-alert {
+    display: none; /* Hidden by default */
+    background: rgba(244, 67, 54, 0.1);
+    color: #D32F2F;
+    border: 1px solid #D32F2F;
+    padding: 10px;
+    border-radius: 6px;
+    margin-top: 15px;
+    font-weight: 700;
+    text-align: center;
+    animation: pulse 2s infinite;
+}
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.02); }
+    100% { transform: scale(1); }
+}
+
+
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -1209,29 +1300,63 @@
       </div>
   </div>
 
-  <div class="col-2" style="margin-top: 10px;">
+  <div class="col-2" style="margin-top: 20px;">
       
-      <div class="card" style="margin-top: 0;">
-        <div class="flex-between">
-            <h3>📈 Revenue Trend</h3>
-            <select id="chartFilter" style="width: auto; padding: 4px; font-size: 12px;" onchange="renderPaymentAnalysis()">
+      <div class="card" style="margin-top: 0; height: 420px; display: flex; flex-direction: column;">
+        <div class="flex-between" style="margin-bottom: 10px;">
+            <h3 style="margin:0;">📈 Revenue Trend</h3>
+            <select id="chartFilter" style="width: auto; padding: 4px; font-size: 12px; margin: 0;" onchange="renderPaymentAnalysis()">
                 <option value="6">Last 6 Months</option>
                 <option value="12">Last Year</option>
             </select>
         </div>
-        <div id="paymentChartContainer" style="height: 300px; padding: 10px;">
+        <div id="paymentChartContainer" style="flex-grow: 1; position: relative; min-height: 0; width: 100%;">
             <canvas id="paymentChart"></canvas>
         </div>
       </div>
 
-      <div class="card" style="margin-top: 0; max-height: 400px; overflow-y: auto;">
-        <h3 style="display:flex; align-items:center; gap:8px;">🏆 Loyalty Leaderboard <span class="badge" style="background:gold; color:black;">Top 10</span></h3>
-        <p class="muted" style="font-size: 11px; margin-bottom: 15px;">Clients with the highest accumulated points (On-Time + Advance).</p>
-        <div id="leaderboardList">
+      <div class="card" style="margin-top: 0; height: 420px; display: flex; flex-direction: column; overflow: hidden;">
+        <div style="margin-bottom: 10px;">
+            <h3 style="display:flex; align-items:center; gap:8px; margin:0;">
+                🏆 Loyalty Leaderboard 
+                <span class="badge" style="background:gold; color:black;">Top 10</span>
+            </h3>
+            <p class="muted" style="font-size: 11px; margin: 5px 0 0 0;">Clients with highest points (On-Time + Advance).</p>
+        </div>
+        <div id="leaderboardList" style="flex-grow: 1; overflow-y: auto; padding-right: 5px;">
             </div>
       </div>
 
   </div>
+  <div class="bw-monitor-card">
+      <div class="bw-flex">
+          <div>
+              <h3 style="margin:0; color: var(--text);">📡 Network Bandwidth Health</h3>
+              <p class="muted" style="margin:5px 0 0 0; font-size:12px;">Total allocated speed vs. Main ISP Capacity</p>
+          </div>
+          
+          <div class="bw-input-group">
+              <span class="muted" style="font-size:12px;">MAIN ISP SPEED:</span>
+              <input type="number" id="mainIspBandwidth" value="100" oninput="calculateBandwidthHealth()">
+              <span style="font-weight:700; color:var(--text);">Mbps</span>
+          </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; margin-top:20px; font-size:14px; font-weight:700;">
+          <div style="color: var(--accent-2);">Allocated: <span id="totalAllocatedBw">0</span> Mbps</div>
+          <div id="bwPercentageText">0% Load</div>
+      </div>
+
+      <div class="progress-track">
+          <div class="progress-fill" id="bwProgressBar"></div>
+      </div>
+
+      <div id="bwWarningMsg" class="bw-alert">
+          ⚠️ CRITICAL WARNING: Total Client Allocation exceeds Main Internet Capacity! <br>
+          Please upgrade your Main Internet Plan immediately to avoid slow connections.
+      </div>
+  </div>
+
 
   <div class="card" style="margin-top: 20px;">
     <h3>📊 Client Payment Tally (Gross Paid)</h3>
@@ -1243,7 +1368,44 @@
     </div>
   </div>
 
-</div>
+  <div class="card" style="margin-top: 20px; border: 1px solid var(--accent);">
+      <div class="flex-between">
+          <h3 style="margin:0; display:flex; align-items:center; gap:8px;">
+              ⚡ System Performance & Network Monitor
+          </h3>
+          <span class="badge" style="background:var(--text); color:white;">Real-time</span>
+      </div>
+
+      <div class="col-2" style="margin-top: 15px;">
+          <div style="background: var(--bg); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
+              <div style="font-size: 12px; font-weight: 700; color: var(--accent-2); margin-bottom: 5px;">
+                  🖥️ BROWSER LOAD (FPS & RAM)
+              </div>
+              <div style="position: relative; height: 180px; width: 100%;">
+                  <canvas id="perfChartCpu"></canvas>
+              </div>
+              <div class="muted" style="font-size: 10px; text-align: center; margin-top: 5px;">
+                  Lower FPS = High CPU/GPU Usage. High Heap = High RAM Usage.
+              </div>
+          </div>
+          
+          </div>
+
+          <div style="background: var(--bg); padding: 10px; border-radius: 8px; border: 1px solid var(--border);">
+              <div style="font-size: 12px; font-weight: 700; color: var(--accent-2); margin-bottom: 5px;">
+                  🌐 INTERNET LATENCY (Ping in ms)
+              </div>
+              <div style="position: relative; height: 180px; width: 100%;">
+                  <canvas id="perfChartNet"></canvas>
+              </div>
+              <div class="muted" style="font-size: 10px; text-align: center; margin-top: 5px;">
+                  Lower ms is better. Spikes indicate lag.
+              </div>
+          </div>
+      </div>
+  </div>
+
+
 
 
 <nav id="fixedNavFooter" class="hidden">
@@ -5682,6 +5844,232 @@ function init(){
   resetAutoLogoutTimer();
 }
 
+/* =========================
+   BANDWIDTH MONITOR LOGIC
+   ========================= */
+const BW_SETTINGS_KEY = 'nrtech_bw_settings_v3';
+
+// 1. Load saved ISP Bandwidth on startup
+function loadBandwidthSettings() {
+    const saved = localStorage.getItem(BW_SETTINGS_KEY);
+    if(saved) {
+        document.getElementById('mainIspBandwidth').value = saved;
+    }
+}
+
+// 2. Main Calculation Function
+function calculateBandwidthHealth() {
+    // A. Save the input value
+    const mainCapacity = Number(document.getElementById('mainIspBandwidth').value) || 1; // Prevent div by 0
+    localStorage.setItem(BW_SETTINGS_KEY, mainCapacity);
+
+    // B. Calculate Total Allocated Bandwidth from ACTIVE clients only
+    let totalAllocated = 0;
+    
+    accounts.forEach(acc => {
+        if(acc.status === 'Active') {
+            // Regex to extract number from string (e.g., "Up to 25 Mbps" -> 25)
+            const speedString = acc.plan.speed || "";
+            const match = speedString.match(/(\d+)/); 
+            
+            if(match) {
+                totalAllocated += parseInt(match[1], 10);
+            }
+        }
+    });
+
+    // C. Update UI Text
+    document.getElementById('totalAllocatedBw').textContent = totalAllocated;
+
+    // D. Calculate Percentage
+    const percentage = (totalAllocated / mainCapacity) * 100;
+    const bar = document.getElementById('bwProgressBar');
+    const warningBox = document.getElementById('bwWarningMsg');
+    const percentText = document.getElementById('bwPercentageText');
+
+    // E. Update Bar Width & Color
+    // Cap visual width at 100% so it doesn't break layout, but keep logic
+    bar.style.width = `${Math.min(percentage, 100)}%`;
+    percentText.textContent = `${percentage.toFixed(1)}% Load`;
+
+    // Reset Classes
+    bar.className = 'progress-fill';
+    warningBox.style.display = 'none';
+
+    if(percentage < 70) {
+        // Green (Default)
+        percentText.style.color = 'green';
+    } else if (percentage >= 70 && percentage <= 100) {
+        // Warning (Orange)
+        bar.classList.add('warning');
+        percentText.style.color = '#FF9800';
+    } else {
+        // Critical (Red)
+        bar.classList.add('danger');
+        percentText.style.color = 'red';
+        warningBox.style.display = 'block'; // Show Warning Box
+    }
+}
+
+// 3. Hook into Initialization
+// We need to override or add to the existing init() function
+const originalInitForBw = init; // Store reference to your existing init
+init = function() {
+    originalInitForBw(); // Run original code
+    loadBandwidthSettings(); // Load saved bandwidth
+    calculateBandwidthHealth(); // Calculate immediately
+};
+
+// 4. Hook into Render Accounts (so it updates when you add/delete clients)
+const originalRenderForBw = renderAccounts;
+renderAccounts = function() {
+    originalRenderForBw();
+    calculateBandwidthHealth();
+};
+
+
+/* =========================
+   PERFORMANCE MONITOR LOGIC
+   ========================= */
+
+// 1. Setup Charts
+const ctxCpu = document.getElementById('perfChartCpu').getContext('2d');
+const ctxNet = document.getElementById('perfChartNet').getContext('2d');
+
+// Common Chart Options
+const commonOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    animation: false, // Disable animation for real-time feel
+    plugins: { legend: { labels: { font: { size: 10 }, boxWidth: 10 } } },
+    scales: {
+        x: { display: false }, // Hide Time Axis
+        y: { grid: { color: 'rgba(0,0,0,0.05)' }, beginAtZero: true }
+    },
+    elements: {
+        point: { radius: 0 } // Hide points for clean lines
+    }
+};
+
+// Initialize CPU/RAM Chart
+const chartCpu = new Chart(ctxCpu, {
+    type: 'line',
+    data: {
+        labels: Array(20).fill(''),
+        datasets: [
+            {
+                label: 'FPS (Smoothness)',
+                data: Array(20).fill(60),
+                borderColor: '#4CAF50', // Green
+                borderWidth: 2,
+                tension: 0.4,
+                yAxisID: 'y'
+            },
+            {
+                label: 'RAM (MB Used)',
+                data: Array(20).fill(0),
+                borderColor: '#d49a37', // Gold
+                borderWidth: 2,
+                tension: 0.4,
+                yAxisID: 'y1'
+            }
+        ]
+    },
+    options: {
+        ...commonOptions,
+        scales: {
+            x: { display: false },
+            y: { 
+                min: 0, max: 70, position: 'left', 
+                title: {display: true, text: 'FPS'} 
+            },
+            y1: { 
+                position: 'right', grid: {drawOnChartArea: false},
+                title: {display: true, text: 'MB'} 
+            }
+        }
+    }
+});
+
+// Initialize Network Chart
+const chartNet = new Chart(ctxNet, {
+    type: 'line',
+    data: {
+        labels: Array(20).fill(''),
+        datasets: [{
+            label: 'Ping (ms)',
+            data: Array(20).fill(0),
+            borderColor: '#2196F3', // Blue
+            backgroundColor: 'rgba(33, 150, 243, 0.1)',
+            fill: true,
+            borderWidth: 2,
+            tension: 0.3
+        }]
+    },
+    options: commonOptions
+});
+
+// 2. Data Gathering Logic
+
+let frameCount = 0;
+let lastTime = performance.now();
+let fps = 60;
+
+// Calculate FPS (Runs every animation frame)
+function countFps() {
+    frameCount++;
+    const now = performance.now();
+    if (now - lastTime >= 1000) {
+        fps = frameCount;
+        frameCount = 0;
+        lastTime = now;
+    }
+    requestAnimationFrame(countFps);
+}
+requestAnimationFrame(countFps);
+
+// Calculate Ping (Runs on interval)
+async function getPing() {
+    const start = performance.now();
+    try {
+        // Pings the current page header (very light)
+        await fetch(window.location.href, { method: 'HEAD', cache: 'no-store' });
+        return Math.round(performance.now() - start);
+    } catch (e) {
+        return 0; // Offline
+    }
+}
+
+// 3. Update Charts Loop (Runs every 1 second)
+setInterval(async () => {
+    // Only update if Main Dashboard is visible
+    if(document.getElementById('mainContainer').classList.contains('hidden')) return;
+
+    // --- Update CPU/RAM Data ---
+    const memory = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : 0; // Chrome only
+    
+    // Shift old data
+    chartCpu.data.datasets[0].data.shift();
+    chartCpu.data.datasets[0].data.push(fps); // FPS
+    
+    chartCpu.data.datasets[1].data.shift();
+    chartCpu.data.datasets[1].data.push(memory); // RAM
+
+    chartCpu.update();
+
+    // --- Update Network Data ---
+    const ping = await getPing();
+    
+    chartNet.data.datasets[0].data.shift();
+    chartNet.data.datasets[0].data.push(ping);
+    
+    // Dynamic color for high ping
+    if(ping > 100) chartNet.data.datasets[0].borderColor = '#F44336'; // Red
+    else chartNet.data.datasets[0].borderColor = '#2196F3'; // Blue
+
+    chartNet.update();
+
+}, 1000);
 
 </script>
 </body>
