@@ -5245,27 +5245,90 @@ document.getElementById('closeAgreement').onclick = () => {
     document.getElementById('modalAgreementBackdrop').style.display = 'none';
 };
 
-// Print Agreement
+// Print Agreement (Updated for A4)
 document.getElementById('btnPrintAgreement').onclick = () => {
     const content = document.getElementById('agreementContent').innerHTML;
-    const w = window.open('', '_blank');
-    w.document.write(`<html><head><title>Agreement</title><link rel="stylesheet" href="style.css"></head><body><div style="padding:40px; font-family:'Times New Roman'">${content}</div><script>window.print();window.close();<\/script></body></html>`);
+    const w = window.open('', '_blank', 'width=800,height=900');
+    
+    w.document.write(`
+    <html>
+    <head>
+        <title>Service Agreement - N'RTECH</title>
+        <style>
+            /* 1. Define A4 Page Size */
+            @page {
+                size: A4;
+                margin: 0; /* We handle margins in the body to avoid browser headers */
+            }
+            
+            body {
+                margin: 0;
+                padding: 0;
+                background-color: #FAFAFA;
+                font-family: 'Times New Roman', Times, serif;
+                -webkit-print-color-adjust: exact;
+            }
+
+            /* 2. The Sheet of Paper */
+            .book {
+                width: 210mm;
+                min-height: 297mm;
+                padding: 20mm; /* Standard 1-inch (approx) margins */
+                margin: 10mm auto;
+                border: 1px solid #D3D3D3;
+                background: white;
+                box-shadow: 0 0 5px rgba(0, 0, 0, 0.1);
+                box-sizing: border-box;
+            }
+
+            /* 3. Styles copied from your main CSS to ensure it looks the same */
+            .legal-header { text-align: center; margin-bottom: 30px; border-bottom: 2px solid #000; padding-bottom: 20px; }
+            .legal-title { font-size: 24px; font-weight: bold; text-transform: uppercase; margin-bottom: 10px; }
+            .legal-logo { height: 60px; margin-bottom: 10px; }
+            .legal-body { font-size: 14px; text-align: justify; line-height: 1.6; }
+            .legal-section { margin-bottom: 15px; }
+            .legal-section h4 { margin: 0 0 5px 0; font-size: 16px; text-decoration: underline; }
+            .legal-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+            .legal-sign-area { margin-top: 50px; display: flex; justify-content: space-between; gap: 50px; }
+            .sign-box { border-top: 1px solid #000; width: 45%; text-align: center; padding-top: 10px; font-weight: bold; }
+
+            /* 4. Print Specific Override */
+            @media print {
+                body, .book {
+                    margin: 0;
+                    box-shadow: none;
+                    border: none;
+                    width: 210mm;
+                    height: 297mm;
+                    background: white;
+                }
+                /* Hide browser scrollbars */
+                ::-webkit-scrollbar { display: none; }
+            }
+        </style>
+    </head>
+    <body>
+        <div class="book">
+            ${content}
+        </div>
+        <script>
+            window.onload = function() {
+                setTimeout(function(){ 
+                    window.print(); 
+                    // Optional: window.close(); 
+                }, 500);
+            }
+        <\/script>
+    </body>
+    </html>
+    `);
+    
     w.document.close();
 };
 
-// Download Agreement PNG
-document.getElementById('btnPngAgreement').onclick = () => {
-    html2canvas(document.getElementById('agreementContent'), { scale: 2 }).then(canvas => {
-        const a = document.createElement('a');
-        a.href = canvas.toDataURL('image/jpeg');
-        a.download = `AGREEMENT_${new Date().getTime()}.jpg`;
-        a.click();
-    });
-};
 
 
 </script>
 </body>
 </html>
-
 
