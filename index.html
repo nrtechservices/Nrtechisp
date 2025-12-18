@@ -586,22 +586,37 @@
     margin-bottom: 5px; border-radius: 6px;
 }
 
-/* Fast.com Container */
+/* Fast.com Container - UPDATED */
 .speed-test-container {
-    margin-top: 20px;
-    border: 1px solid var(--border);
+    margin-top: 15px;
+    /* NEW: Thicker Gold Border */
+    border: 2px solid var(--accent); 
     border-radius: 12px;
     overflow: hidden;
     background: #000;
     position: relative;
-
+    /* NEW: Gold Glow Effect */
+    box-shadow: 0 0 15px rgba(212, 154, 55, 0.2); 
 }
+
 .speed-test-header {
     background: var(--card);
-    padding: 10px;
-    display: flex; justify-content: space-between; align-items: center;
-    border-bottom: 1px solid var(--border);
+    padding: 8px 12px;
+    display: flex; 
+    justify-content: space-between; 
+    align-items: center;
+    border-bottom: 1px solid var(--accent); /* Gold separator */
 }
+
+/* NEW: Wrapper to control the specific size */
+.speed-test-frame-wrapper {
+    position: relative;
+    width: 100%;
+    /* RESIZED: Changed from 300px to 220px for a better fit */
+    height: 220px; 
+    background-color: #000;
+}
+
 
 /* --- CALCULATOR STYLES --- */
 .calc-grid {
@@ -1037,6 +1052,54 @@
     padding-top: 5px;
 }
 
+/* --- NEW DASHBOARD WIDGETS --- */
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-top: 20px;
+    margin-bottom: 20px;
+}
+.stat-card {
+    background: var(--card);
+    padding: 20px;
+    border-radius: 12px;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border);
+    position: relative;
+    overflow: hidden;
+}
+.stat-card::after {
+    content: "";
+    position: absolute;
+    top: 0; right: 0; width: 60px; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(212, 154, 55, 0.1));
+}
+.stat-title { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; font-weight: 700; }
+.stat-value { font-size: 28px; font-weight: 800; color: var(--text); margin-top: 5px; }
+.stat-desc { font-size: 11px; color: var(--accent-2); margin-top: 5px; display: flex; align-items: center; gap: 5px; }
+
+/* --- POINTS LEADERBOARD --- */
+.leaderboard-row {
+    display: flex;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.2s;
+}
+.leaderboard-row:hover { background: rgba(212, 154, 55, 0.05); }
+.rank-badge {
+    width: 30px; height: 30px;
+    background: var(--bg);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 14px;
+    margin-right: 15px;
+    border: 2px solid var(--border);
+}
+.rank-1 { background: linear-gradient(135deg, #FFD700, #FDB931); color: white; border: none; box-shadow: 0 2px 5px rgba(255, 215, 0, 0.4); }
+.rank-2 { background: linear-gradient(135deg, #E0E0E0, #BDBDBD); color: white; border: none; }
+.rank-3 { background: linear-gradient(135deg, #CD7F32, #A0522D); color: white; border: none; }
 
 </style>
 
@@ -1128,11 +1191,46 @@
 
 <div class="container hidden" id="mainContainer">
 
-  <div class="card" style="margin-top: 20px;">
-    <h3>📈 Payment Analysis (Last 6 Months)</h3>
-    <div id="paymentChartContainer" style="max-height: 400px; padding: 15px;">
-        <canvas id="paymentChart"></canvas>
-    </div>
+  <div class="stats-grid">
+      <div class="stat-card">
+          <div class="stat-title">Total Active Clients</div>
+          <div class="stat-value" id="widgetTotalClients">0</div>
+          <div class="stat-desc">👤 Subscribers</div>
+      </div>
+      <div class="stat-card">
+          <div class="stat-title">Est. Monthly Revenue</div>
+          <div class="stat-value" id="widgetRevenue">₱0.00</div>
+          <div class="stat-desc">💰 Recurring Plans</div>
+      </div>
+      <div class="stat-card">
+          <div class="stat-title">Collections (This Month)</div>
+          <div class="stat-value" id="widgetCollection">₱0.00</div>
+          <div class="stat-desc">📅 Actual Cash In</div>
+      </div>
+  </div>
+
+  <div class="col-2" style="margin-top: 10px;">
+      
+      <div class="card" style="margin-top: 0;">
+        <div class="flex-between">
+            <h3>📈 Revenue Trend</h3>
+            <select id="chartFilter" style="width: auto; padding: 4px; font-size: 12px;" onchange="renderPaymentAnalysis()">
+                <option value="6">Last 6 Months</option>
+                <option value="12">Last Year</option>
+            </select>
+        </div>
+        <div id="paymentChartContainer" style="height: 300px; padding: 10px;">
+            <canvas id="paymentChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top: 0; max-height: 400px; overflow-y: auto;">
+        <h3 style="display:flex; align-items:center; gap:8px;">🏆 Loyalty Leaderboard <span class="badge" style="background:gold; color:black;">Top 10</span></h3>
+        <p class="muted" style="font-size: 11px; margin-bottom: 15px;">Clients with the highest accumulated points (On-Time + Advance).</p>
+        <div id="leaderboardList">
+            </div>
+      </div>
+
   </div>
 
   <div class="card" style="margin-top: 20px;">
@@ -1145,7 +1243,8 @@
     </div>
   </div>
 
-  </div>
+</div>
+
 
 <nav id="fixedNavFooter" class="hidden">
     <button id="navBtnAccounts">
@@ -1159,20 +1258,7 @@
     </button>
 </nav>
 
-<nav id="fixedNavFooter" class="hidden">
-    <button id="navBtnAccounts">
-        <span>&#128100;</span> <div>Accounts</div>
-    </button>
-    <button id="navBtnDashboard">
-        <span>&#128202;</span> <div>Dashboard</div>
-    </button>
-    <button id="navBtnCalculator">
-        <span>🧮</span> <div>Calc</div>
-    </button>
-    <button id="navBtnSettings">
-        <span>&#9881;</span> <div>Settings</div>
-    </button>
-</nav>
+
 
 
 <div class="modal-backdrop" id="modalDashboardBackdrop">
@@ -1821,28 +1907,36 @@
             <button id="btnClientRequestUpgrade" class="no-print" style="width: 100%; margin-top: 10px;">Request Upgrade</button>
         </div>
 
-        <div class="card" style="margin-top:16px;">
+                <div class="card" style="margin-top:16px;">
             <h4 style="margin:0; color: var(--accent-2);">Payment History</h4>
             <div style="margin-top:10px; overflow-x: auto; max-height: 300px;">
                 <table>
-                <thead><tr><th>Date</th><th>Ref #</th><th>Amount</th><th>Note</th><th>Penalty</th><th>Net Applied</th></tr></thead>
-                <tbody id="clientPaymentsTbody"></tbody>
+                    <thead><tr><th>Date</th><th>Ref #</th><th>Amount</th><th>Note</th><th>Penalty</th><th>Net Applied</th></tr></thead>
+                    <tbody id="clientPaymentsTbody"></tbody>
                 </table>
-          <div class="speed-test-container">
+            </div>
+        </div>
+
+        <div class="card" style="margin-top:16px; border: 1px solid var(--accent); padding: 0; overflow: hidden;">
             <div class="speed-test-header">
                 <div style="display:flex; align-items:center; gap:8px;">
                      <span style="font-size: 20px;">🚀</span>
-                     <h4 style="margin:0; color: #fff;">Network Speed Test</h4>
+                     <h4 style="margin:0; color: var(--text);">Network Speed Test</h4>
                 </div>
                 <span class="badge" style="background: #00ff00; color: black;">Powered by Fast.com</span>
             </div>
-            <div style="position: relative; height: 300px; width: 100%;">
-                <iframe src="https://fast.com" style="border:none; width:100%; height:100%;" title="Speed Test"></iframe>
+            
+            <div class="speed-test-frame-wrapper">
+                <iframe src="https://fast.com" 
+                        style="border:none; width:100%; height:100%;" 
+                        title="Speed Test"></iframe>
             </div>
-            <div style="background: #222; color: #aaa; font-size: 10px; padding: 5px; text-align: center;">
-                Note: If the test doesn't auto-start, <a href="https://fast.com" target="_blank" style="color: #fff;">Click Here</a> to open in new tab.
+            
+            <div style="background: #111; color: #888; font-size: 10px; padding: 5px; text-align: center;">
+                Note: If the test doesn't auto-start, <a href="https://fast.com" target="_blank" style="color: var(--accent);">Click Here</a> to open in a new tab.
             </div>
         </div>
+
 
             </div>
         </div>
@@ -1876,23 +1970,7 @@
         </div>
     </div>
 </div>
-        <div class="card" style="margin-top:16px; border: 1px solid var(--accent);">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h4 style="margin:0; color: var(--accent-2);">🚀 Speed Test</h4>
-                <span class="badge" style="background: #202020; color: #00ff00;">Powered by Fast.com</span>
-            </div>
-            
-            <p class="muted" style="font-size:12px; margin: 5px 0 10px 0;">
-                Check your current internet speed without leaving the dashboard.
-            </p>
-
-            <div style="position: relative; width: 100%; height: 300px; overflow: hidden; border-radius: 8px; border: 1px solid #ccc;">
-                <iframe 
-                    src="https://fast.com" 
-                    style="width: 100%; height: 100%; border: none;"
-                    title="Fast.com Speed Test">
-                </iframe>
-            </div>
+        
             
             <div style="text-align: center; margin-top: 5px;">
                 <small class="muted">If the test doesn't load, <a href="https://fast.com" target="_blank" style="color:var(--accent);">click here</a>.</small>
@@ -2145,11 +2223,24 @@ function resetAutoLogoutTimer() {
     clearTimeout(autoLogoutTimer);
     if (isLoggedIn()) {
         autoLogoutTimer = setTimeout(() => {
+            // 1. Set State to False (Hides Admin UI)
             setLoginState(false);
-            showToast("You have been automatically logged out due to inactivity.", 'warning');
+            
+            // 2. Explicitly Show Login Modal
+            document.getElementById('loginModalBackdrop').style.display = 'flex';
+            
+            // 3. Clear any open modals to prevent clutter
+            document.querySelectorAll('.modal-backdrop').forEach(el => {
+                if(el.id !== 'loginModalBackdrop') el.style.display = 'none';
+            });
+
+            // 4. Alert user
+            showToast("Session Expired. Please log in again.", 'error');
+            
         }, AUTO_LOGOUT_DURATION);
     }
 }
+
 
 // Attach event listeners for user activity
 ['mousemove', 'keypress', 'click', 'scroll', 'touchstart'].forEach(eventType => {
@@ -2969,32 +3060,29 @@ function openAccount(idx){
         };
     }
 
-        // ... inside openAccount function loop ...
-
-    tr.innerHTML = `
+        tr.innerHTML = `
         <td>${new Date(t.date).toLocaleDateString()}</td>
-        <td>${t.ref || ''}</td> 
-        <td class="${t.type === 'charge' ? 'text-danger' : 'text-success'}" style="font-weight:700">
+        <td>${t.ref || ''}</td> <td class="${t.type === 'charge' ? 'text-danger' : 'text-success'}" style="font-weight:700">
             ${t.type === 'payment' ? 'Payment' : t.type.charAt(0).toUpperCase() + t.type.slice(1)}
         </td>
         <td>${t.note || ''}</td>
         <td style="text-align:right">₱${Number(t.amount).toFixed(2)}</td>
-        <td class="no-print" style="display:flex; gap:5px; justify-content:flex-end;">
-          
+        <td class="no-print" style="display:flex; gap:5px;">
           ${t.type === 'payment' ? `
-            <button class="small ghost" title="Download PNG Receipt"
-                onclick="event.stopPropagation(); downloadTransactionPng(${activeAccountIndex}, ${t.originalIndex})">
-                ⬇️
-            </button>
+          <button class="small ghost" style="color:var(--accent); border-color:var(--accent);" 
+              title="Download PNG"
+              onclick="event.stopPropagation(); downloadTransactionPng(${activeAccountIndex}, ${t.originalIndex})">
+              ⬇️
+          </button>
           ` : ''}
-
-          <button class="small ghost" style="color:red; border-color:red;" title="Delete"
+          
+          <button class="small ghost" style="color:red; border-color:red;" 
+              title="Delete"
               onclick="event.stopPropagation(); deleteTransaction(${activeAccountIndex}, '${t.type}', ${t.originalIndex})">
               🗑️
           </button>
         </td>
     `;
-    // ... rest of code ...
 
     paymentsTbody.appendChild(tr);
   });
@@ -3802,114 +3890,91 @@ document.getElementById('btnExportLogs').onclick = () => {
    PAYMENT ANALYSIS CHART (MODIFIED)
    ========================= */
 function renderPaymentAnalysis() {
-    const monthsToShow = 6;
+    // Determine filter (6 months or 12 months)
+    const monthsToShow = document.getElementById('chartFilter') ? Number(document.getElementById('chartFilter').value) : 6;
+    
     const today = new Date();
     const monthlyData = {};
     const labels = [];
 
-    // Initialize data structure for last 6 months
+    // Initialize data structure
     for (let i = monthsToShow - 1; i >= 0; i--) {
         const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
         const monthYear = date.toISOString().slice(0, 7);
-        labels.push(date.toLocaleString('default', { month: 'short', year: '2-digit' }));
-        monthlyData[monthYear] = { paid: 0, net: 0, penalties: 0 }; // Added penalties
+        labels.push(date.toLocaleString('default', { month: 'short' }));
+        monthlyData[monthYear] = { paid: 0 }; 
     }
 
     accounts.forEach(acc => {
         acc.payments.forEach(p => {
             const monthKey = p.date.slice(0, 7);
             if (monthlyData[monthKey]) {
-                monthlyData[monthKey].paid += p.amount;
-                const discount = p.discountApplied || 0;
-                const penalty = p.surchargeApplied || 0;
-                const netCollection = acc.plan.fee - discount + penalty;
-                monthlyData[monthKey].net += netCollection;
-                monthlyData[monthKey].penalties += penalty; // Track penalties
+                monthlyData[monthKey].paid += Number(p.amount);
             }
         });
     });
 
-    const paidData = labels.map((label, index) => {
-        const monthKey = new Date(today.getFullYear(), today.getMonth() - (monthsToShow - 1 - index), 1).toISOString().slice(0, 7);
-        return monthlyData[monthKey] ? monthlyData[monthKey].paid : 0;
-    });
-    const netData = labels.map((label, index) => {
-        const monthKey = new Date(today.getFullYear(), today.getMonth() - (monthsToShow - 1 - index), 1).toISOString().slice(0, 7);
-        return monthlyData[monthKey] ? monthlyData[monthKey].net : 0;
-    });
-    const penaltiesData = labels.map((label, index) => { // New data array
-        const monthKey = new Date(today.getFullYear(), today.getMonth() - (monthsToShow - 1 - index), 1).toISOString().slice(0, 7);
-        return monthlyData[monthKey] ? monthlyData[monthKey].penalties : 0;
-    });
-
+    const paidData = Object.keys(monthlyData).sort().map(key => monthlyData[key].paid);
 
     const ctx = document.getElementById('paymentChart').getContext('2d');
+
+    // Create Gradient for a cooler look
+    const gradient = ctx.createLinearGradient(0, 0, 0, 400);
+    gradient.addColorStop(0, 'rgba(212, 154, 55, 0.6)'); // Gold
+    gradient.addColorStop(1, 'rgba(212, 154, 55, 0.0)'); // Transparent
 
     if (paymentAnalysisChart) {
         paymentAnalysisChart.destroy();
     }
 
-    const chartOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        scales: {
-            y: {
-                beginAtZero: true,
-                ticks: {
-                    color: 'var(--muted)',
-                    callback: function(value, index, ticks) {
-                        return '₱' + value.toLocaleString();
-                    }
-                },
-                grid: { color: 'var(--border)' }
-            },
-            x: {
-                ticks: { color: 'var(--muted)' },
-                grid: { display: false }
-            }
+    paymentAnalysisChart = new Chart(ctx, {
+        type: 'line', // CHANGED TO LINE
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Total Collections',
+                data: paidData,
+                borderColor: '#d49a37', // Solid Gold Line
+                backgroundColor: gradient, // Gradient Fill
+                borderWidth: 3,
+                tension: 0.4, // Smooths the curve
+                fill: true,   // Fills area under line
+                pointBackgroundColor: '#fff',
+                pointBorderColor: '#d49a37',
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }]
         },
-        plugins: {
-            legend: {
-                labels: { color: 'var(--text)' }
-            },
-            tooltip: {
-                callbacks: {
-                    label: function(context) {
-                        let label = context.dataset.label || '';
-                        if (label) { label += ': '; }
-                        if (context.parsed.y !== null) { label += '₱' + context.parsed.y.toLocaleString(); }
-                        return label;
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }, // Hide legend for cleaner look
+                tooltip: {
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    titleColor: '#d49a37',
+                    bodyFont: { size: 14, weight: 'bold' },
+                    callbacks: {
+                        label: function(context) {
+                            return ' ₱' + context.parsed.y.toLocaleString();
+                        }
                     }
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    grid: { color: 'rgba(0,0,0,0.05)' },
+                    ticks: { callback: value => '₱' + value/1000 + 'k' } // Format as 1k, 2k
+                },
+                x: {
+                    grid: { display: false }
                 }
             }
         }
-    };
-
-    paymentAnalysisChart = new Chart(ctx, {
-        type: 'bar', // CHANGED to bar chart
-        data: {
-            labels: labels,
-            datasets: [
-                {
-                    label: 'Total Paid (Gross)',
-                    data: paidData,
-                    backgroundColor: 'var(--toast-info)', // Use var
-                },
-                {
-                    label: 'Net Collection (Adjusted)',
-                    data: netData,
-                    backgroundColor: 'var(--accent-2)', // Use var
-                },
-                {
-                    label: 'Penalties Collected', // NEW Dataset
-                    data: penaltiesData,
-                    backgroundColor: 'var(--toast-error)', // Use var
-                }
-            ]
-        },
-        options: chartOptions
     });
 }
+
 /* =========================
    END PAYMENT ANALYSIS CHART
    ========================= */
@@ -3997,87 +4062,114 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
    ============================================================ */
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
     
-    // 1. Determine Payment and Dates
+    // 1. Determine Payment Data
     let targetPayment = null;
-    // Find the specific payment object if index provided
-    if (specificPaymentIndex !== null) {
-        // We have to find the payment in the account's payment array that matches the index
-        // Since we are sorting in the view, we passed the 'originalIndex' from the openAccount logic
+    let paymentAmount = 0;
+    let paymentDate = new Date().toISOString();
+    let resultingBalance = acc.excessLackingBalance; // Default to current
+    let refNum = "BILLING";
+    let paymentNote = "";
+
+    if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
+        // VIEWING A SPECIFIC PAST RECEIPT
         targetPayment = acc.payments[specificPaymentIndex];
+        paymentAmount = Number(targetPayment.amount);
+        paymentDate = targetPayment.date;
+        refNum = targetPayment.referenceNumber || "REF";
+        paymentNote = targetPayment.note || "";
+        // Use the snapshot balance stored with the payment if available, 
+        // otherwise fall back to current (though historical is preferred)
+        if(targetPayment.balanceApplied !== undefined) {
+            resultingBalance = targetPayment.balanceApplied;
+        }
     } else if (!isReminder && acc.payments.length > 0) {
-        targetPayment = acc.payments[acc.payments.length - 1]; 
+        // VIEWING LATEST PAYMENT
+        targetPayment = acc.payments[acc.payments.length - 1];
+        paymentAmount = Number(targetPayment.amount);
+        paymentDate = targetPayment.date;
+        refNum = targetPayment.referenceNumber || "REF";
+        paymentNote = targetPayment.note || "";
+        if(targetPayment.balanceApplied !== undefined) {
+            resultingBalance = targetPayment.balanceApplied;
+        }
+    } else if (isReminder) {
+        // VIEWING REMINDER (No Payment made yet)
+        paymentAmount = 0;
+        refNum = "REMINDER";
+        paymentDate = new Date().toISOString(); // Today
+        resultingBalance = acc.excessLackingBalance;
     }
 
-    const today = new Date();
     const planFee = acc.plan.fee;
-    
-    // Context Date (Current Month or Payment Month)
-    let contextDateStr = isReminder 
-        ? new Date(acc.nextDue).toISOString().slice(0, 7) 
-        : (targetPayment ? targetPayment.date.slice(0, 7) : today.toISOString().slice(0, 7));
+    const dateObj = new Date(paymentDate);
+    const displayDate = dateObj.toLocaleDateString();
+    const billingMonthStr = paymentDate.slice(0, 7); // YYYY-MM
 
-    const displayDate = targetPayment ? new Date(targetPayment.date).toLocaleDateString() : today.toLocaleDateString();
-    const refNum = targetPayment ? (targetPayment.referenceNumber || "REF") : "BILLING";
-
-    // 2. POINTS DISPLAY (Requirement: Only Adv, OnTime, Lost)
+    // 2. FEATURE 2: Points (Advance, OnTime, Lost ONLY)
     const pAdv = acc.points.advance || 0;
     const pTime = acc.points.ontime || 0;
     const pLost = acc.points.lost || 0;
+    const totalPoints = pAdv + pTime - pLost;
 
-    // 3. CALCULATE SUBTOTAL (Plan + Charges - Discounts)
-    let totalCharges = 0;
-    let totalDiscounts = 0;
+    // 3. FEATURE 3: Calculation Flow
+    // Flow: Plan + Charges - Discounts = SUBTOTAL
+    // SUBTOTAL - Amount Paid = BALANCE (Excess/Lacking)
+
     let extraItemsHtml = '';
+    let totalExtras = 0; // Charges + Penalties
+    let totalDiscounts = 0;
 
-    // Sum Charges for this month
+    // A. Add Plan Fee
+    let subTotal = planFee;
+
+    // B. Charges & Penalties
     if(acc.charges) {
         acc.charges.forEach(c => {
-            if(c.date.startsWith(contextDateStr)) {
+            // Include charges from the same month as the payment
+            if(c.date.startsWith(billingMonthStr)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-error);">
-                    <span>+ ${c.note || 'Extra Charge'}</span>
+                    <span>[+] ${c.note || 'Extra Charge'}</span>
                     <span>₱${Number(c.amount).toFixed(2)}</span>
                 </div>`;
-                totalCharges += Number(c.amount);
+                totalExtras += Number(c.amount);
             }
         });
     }
 
-    // Sum Discounts for this month
+    // C. Discounts
     if(acc.discounts) {
         acc.discounts.forEach(d => {
-            if(d.date.startsWith(contextDateStr)) {
+            if(d.date.startsWith(billingMonthStr)) {
                 extraItemsHtml += `
                 <div class="therm-row" style="color:var(--toast-success);">
-                    <span>- ${d.note || 'Discount'}</span>
-                    <span>₱${Number(d.amount).toFixed(2)}</span>
+                    <span>[-] ${d.note || 'Discount'}</span>
+                    <span>-₱${Number(d.amount).toFixed(2)}</span>
                 </div>`;
                 totalDiscounts += Number(d.amount);
             }
         });
     }
-
-    // Mathematical Flow
-    const subTotalBill = planFee + totalCharges - totalDiscounts;
     
-    // Determine Amount Paid
-    let amountPaid = 0;
-    if(!isReminder && targetPayment) {
-        amountPaid = Number(targetPayment.amount);
+    // Check if this payment had a specific surcharge/penalty stored
+    if(targetPayment && targetPayment.surchargeApplied > 0) {
+        extraItemsHtml += `
+        <div class="therm-row" style="color:var(--toast-error);">
+            <span>[+] Late Penalty</span>
+            <span>₱${Number(targetPayment.surchargeApplied).toFixed(2)}</span>
+        </div>`;
+        totalExtras += Number(targetPayment.surchargeApplied);
     }
 
-    // Determine Previous Balance (This is approximate based on current state for receipts)
-    // For a perfect ledger, we'd need snapshotting, but using current running balance logic:
-    // New Balance = Previous Balance + Amount Paid - SubtotalBill
-    // Therefore: Previous Balance = New Balance - Amount Paid + SubtotalBill
+    // D. Calculate Subtotal (Total Bill for this period)
+    subTotal = subTotal + totalExtras - totalDiscounts;
+
+    // E. Calculate Previous Balance (Reverse Engineering)
+    // If Result = Previous + Paid - Bill, then Previous = Result - Paid + Bill
+    // However, for simplicity and clarity on receipts, we focus on Resulting Balance.
     
-    // However, for the RECEIPT visual requested:
-    // We compare Subtotal vs Amount Paid to show the resulting balance impact
-    
-    const currentRunningBalance = acc.excessLackingBalance; // The final balance of the account
-    
-    // Message Logic
-    const footerMsg = invSettings.footer || (isReminder ? "Keep this receipt for your records." : "Thank you for your payment!");
+    // Determine Footer Message
+    const footerMsg = invSettings.footer || (isReminder ? "Please pay before due date." : "Thank you for your payment!");
 
     return `
     <div id="invoiceCapture" class="invoice-thermal">
@@ -4093,13 +4185,15 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
+            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name}</span></div>
         </div>
         
         <div class="therm-points-box">
-            <div style="display:flex; justify-content:space-between; font-weight:700; font-size:11px;">
-                <span>ADV: ${pAdv}</span>
-                <span>ON-TIME: ${pTime}</span>
-                <span>LOST: ${pLost}</span>
+            <div style="font-weight:bold; margin-bottom:2px;">LOYALTY POINTS: ${totalPoints}</div>
+            <div style="display:flex; justify-content:space-around; font-size:10px;">
+                <span>Adv: ${pAdv}</span>
+                <span>On-Time: ${pTime}</span>
+                <span>Lost: ${pLost}</span>
             </div>
         </div>
 
@@ -4107,40 +4201,44 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
         </div>
 
-        <div style="margin-bottom: 5px; font-weight:700; border-bottom: 1px solid #ddd;">BILL PARTICULARS</div>
-        
         <div class="therm-row">
-            <span>Internet Plan (Monthly)</span>
+            <span>Monthly Service Fee</span>
             <span>₱${planFee.toFixed(2)}</span>
         </div>
+
         ${extraItemsHtml}
 
-        <div class="therm-row" style="border-top: 1px dashed #000; padding-top: 5px; margin-top: 5px; font-weight: 700;">
-            <span>SUBTOTAL (Current Bill)</span>
-            <span>₱${subTotalBill.toFixed(2)}</span>
+        <div class="therm-divider"></div>
+        
+        <div class="therm-row" style="font-weight:700;">
+            <span>SUBTOTAL (Total Due)</span>
+            <span>₱${subTotal.toFixed(2)}</span>
         </div>
 
-        <br>
-        
-        <div class="therm-row" style="font-size: 13px;">
+        ${!isReminder ? `
+        <div class="therm-row" style="font-size: 14px; margin-top: 5px;">
             <span>AMOUNT PAID</span>
-            <span style="font-weight:700;">₱${amountPaid.toFixed(2)}</span>
+            <span style="font-weight:800;">₱${paymentAmount.toFixed(2)}</span>
         </div>
+        ` : ''}
 
         <div class="therm-divider"></div>
 
-        <div class="therm-row" style="font-size: 16px; font-weight: 800;">
-            <span>TOTAL BALANCE:</span>
-            <span style="${currentRunningBalance >= 0 ? 'color:black' : 'color:red'}">
-                ${currentRunningBalance >= 0 ? '(Excess) ' : '(Lacking) '}
-                ₱${Math.abs(currentRunningBalance).toFixed(2)}
+        <div class="therm-row" style="font-size: 14px; font-weight: 800;">
+            <span>${resultingBalance >= 0 ? 'EXCESS (WALLET)' : 'LACKING (BALANCE)'}</span>
+            <span style="${resultingBalance < 0 ? 'color:red' : 'color:black'}">
+                ${resultingBalance >= 0 ? '₱'+resultingBalance.toFixed(2) : '-₱'+Math.abs(resultingBalance).toFixed(2)}
             </span>
         </div>
+        
+        ${paymentNote ? `<div style="margin-top:5px; font-size:11px; text-align:center; font-style:italic;">Note: ${paymentNote}</div>` : ''}
 
-        ${!isReminder && targetPayment ? `
-        <div style="margin-top:5px; font-size:11px; text-align:center;">
-            Note: ${targetPayment.note || 'Payment Received'}
-        </div>` : ``}
+        <div style="margin-top: 15px; border-top: 2px dashed #000; padding-top: 10px; text-align: center;">
+            <div style="font-weight: 800; margin-bottom: 5px;">PAY VIA GCASH</div>
+            <img src="gcash-qr.png" style="width: 100px; height: 100px; border: 2px solid #000;">
+            <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">0931-792-6807</div>
+            <div style="font-size: 10px;">NO***L JO*N R.</div>
+        </div>
 
         <div class="therm-footer">
             <br>
@@ -4149,6 +4247,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     </div>
     `;
 }
+
 
 
 
@@ -4446,45 +4545,109 @@ document.getElementById('btnViewPendingClients').onclick = () => {
     renderPendingClients();
     modalPendingClientsBackdrop.style.display = 'flex';
 };
+
+// FIX: This was previously nested inside the function below, making it unclickable. 
+// It is now separated correctly.
 document.getElementById('closePendingClients').onclick = () => {
-// Admin: View/Close Upgrade Requests
+    modalPendingClientsBackdrop.style.display = 'none';
+};
+
+// --- MISSING FUNCTION: Render Pending Clients Table ---
+function renderPendingClients() {
+    const tbody = document.getElementById('pendingClientsTbody');
+    tbody.innerHTML = '';
+
+    // Check if empty
+    if (!pendingClients || pendingClients.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; padding: 20px;" class="muted">No pending applications found.</td></tr>';
+        updatePendingClientsCount();
+        return;
+    }
+
+    // Loop through pending clients and create rows
+    pendingClients.forEach((app, idx) => {
+        const tr = document.createElement('tr');
+        
+        // Format the plan name (remove the |Price|Speed part for display)
+        let displayPlan = app.plan;
+        if (app.plan && app.plan.includes('|')) {
+            const parts = app.plan.split('|');
+            displayPlan = `${parts[0]} (₱${parts[1]})`;
+        }
+
+        tr.innerHTML = `
+            <div style="font-weight:700; color:var(--text);">${app.name}</div>
+            <div style="font-size:11px; color:var(--muted);">Ref: ${app.paymentRef || 'N/A'}</div>
+            </td>
+            <td>${app.contact}</td>
+            <td style="font-size:12px;">${app.address}</td>
+            <td>${displayPlan}</td>
+            <td class="no-print">
+                <div style="display:flex; gap: 5px;">
+                    <button class="small" onclick="approveClient(${idx})" title="Approve & Create Account">✅</button>
+                    <button class="small ghost" onclick="rejectClient(${idx})" style="color:red; border-color:red;" title="Reject">❌</button>
+                </div>
+            </td>
+        `;
+        
+        // Add cells wrapper logic fix for simple table structure
+        // Re-writing innerHTML to match your specific table headers: 
+        // <thead><tr><th>Name</th><th>Contact</th><th>Address</th><th>Plan</th><th>Actions</th></tr></thead>
+        tr.innerHTML = `
+            <td>
+                <div style="font-weight:700;">${app.name}</div>
+                <div style="font-size:10px; color:var(--accent-2);">Ref: ${app.paymentRef || 'N/A'}</div>
+            </td>
+            <td>${app.contact}</td>
+            <td>${app.address}</td>
+            <td>${displayPlan}</td>
+            <td>
+                <button class="small" onclick="approveClient(${idx})">Approve</button>
+                <button class="small ghost" style="color:red; border-color:red; margin-left:5px;" onclick="rejectClient(${idx})">Reject</button>
+            </td>
+        `;
+
+        tbody.appendChild(tr);
+    });
+
+    updatePendingClientsCount();
+}
+
+// --- Admin: Upgrade Requests Logic ---
 document.getElementById('btnViewUpgradeRequests').onclick = () => {
-    
+    renderPendingUpgrades(); // This function creates the table rows
     modalUpgradeRequestsBackdrop.style.display = 'flex';
 };
+
 document.getElementById('closeUpgradeRequests').onclick = () => {
     modalUpgradeRequestsBackdrop.style.display = 'none';
 };
 
-    modalPendingClientsBackdrop.style.display = 'none';
-};
+// FIX: This function was missing in your original code, so the table was empty.
+function renderPendingUpgrades() {
+    const tbody = document.getElementById('pendingUpgradesTbody');
+    tbody.innerHTML = '';
 
-function renderPendingClients() {
-    pendingClientsTbody.innerHTML = '';
-    if (pendingClients.length === 0) {
-        pendingClientsTbody.innerHTML = '<tr><td colspan="5" style="text-align: center;" class="muted">No pending applications.</td></tr>';
+    if (!pendingUpgrades || pendingUpgrades.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align: center;" class="muted">No pending upgrade requests.</td></tr>';
+        return;
     }
-    pendingClients.forEach((app, idx) => {
-        const [pname, pfee, pspeed] = app.plan.split('|');
+
+    pendingUpgrades.forEach((req, idx) => {
         const tr = document.createElement('tr');
-                tr.innerHTML = `
-            <td>
-                <div style="font-weight:700">${app.name}</div>
-                <div class="muted" style="font-size:11px;">Paid: ₱${app.totalInitialPay || 0}</div>
-                <div class="muted" style="font-size:10px;">Ref: ${app.paymentRef || 'N/A'}</div>
-            </td>
-            <td>${app.contact}</td>
-            <td>${app.address}</td>
-            <td>${pname} (₱${pfee})</td>
+        tr.innerHTML = `
+            <td>${req.accountNumber}</td>
+            <td>${req.name}</td>
+            <td>${req.currentPlanName}</td>
+            <td style="color: var(--accent); font-weight: 700;">${req.requestedPlanName}</td>
             <td class="no-print">
-                <button class="small" onclick="approveClient(${idx})">Verify & Approve</button>
-                <button class="small ghost" onclick="rejectClient(${idx})">Reject</button>
+                <button class="small" onclick="approveUpgrade(${idx})">✅ Approve</button>
+                <button class="small ghost" onclick="rejectUpgrade(${idx})">❌ Reject</button>
             </td>
         `;
-
-        pendingClientsTbody.appendChild(tr);
+        tbody.appendChild(tr);
     });
-    updatePendingClientsCount();
+    updatePendingUpgradesCount();
 }
 
 function approveClient(idx) {
@@ -4687,7 +4850,8 @@ document.getElementById('btnClientPayNow').onclick = () => {
 document.getElementById('closeGcashPay').onclick = () => {
     modalGcashPaymentBackdrop.style.display = 'none';
 };
-// Client Portal: Request Upgrade
+
+// --- Client Portal: Request Upgrade Logic ---
 document.getElementById('btnClientRequestUpgrade').onclick = () => {
     if (!activeClientAccount) return;
 
@@ -4695,14 +4859,7 @@ document.getElementById('btnClientRequestUpgrade').onclick = () => {
     const selectedValue = select.value;
     const selectedText = select.options[select.selectedIndex].text;
 
-// Client Portal: Request Upgrade
-document.getElementById('btnClientRequestUpgrade').onclick = () => {
-    if (!activeClientAccount) return;
-
-    const select = document.getElementById('clientPlanUpgradeSelect');
-    const selectedValue = select.value;
-    const selectedText = select.options[select.selectedIndex].text;
-
+    // 1. Create the request object
     const request = {
         accountNumber: activeClientAccount.accountNumber,
         name: activeClientAccount.name,
@@ -4711,32 +4868,24 @@ document.getElementById('btnClientRequestUpgrade').onclick = () => {
         requestedPlanValue: selectedValue
     }; 
     
-    // FIX: The function call is now HERE, outside the object
+    // 2. Check for duplicates
+    if (pendingUpgrades.some(r => r.accountNumber === request.accountNumber)) {
+        return showToast('You already have a pending upgrade request.', 'warning');
+    }
+
+    // 3. FIX: Execute Push cleanly (Removed duplicate nested functions)
+    pendingUpgrades.push(request);
+    savePendingUpgrades();
+
+    // 4. Notify Admin
     pushNotification('info', `Upgrade Request: ${activeClientAccount.name} wants ${selectedText}`, 'viewUpgrades');
 
-    // Check if a request already exists
-    if (pendingUpgrades.some(r => r.accountNumber === request.accountNumber)) {
-        return showToast('You already have a pending upgrade request.', 'warning');
-    }
-
-    pendingUpgrades.push(request);
-    savePendingUpgrades();
+    // 5. Update UI
     showToast('Upgrade request submitted for admin review!', 'success');
     document.getElementById('btnClientRequestUpgrade').disabled = true;
     document.getElementById('btnClientRequestUpgrade').textContent = 'Request Pending...';
 };
 
-    // Check if a request already exists
-    if (pendingUpgrades.some(r => r.accountNumber === request.accountNumber)) {
-        return showToast('You already have a pending upgrade request.', 'warning');
-    }
-
-    pendingUpgrades.push(request);
-    savePendingUpgrades();
-    showToast('Upgrade request submitted for admin review!', 'success');
-    document.getElementById('btnClientRequestUpgrade').disabled = true;
-    document.getElementById('btnClientRequestUpgrade').textContent = 'Request Pending...';
-};
 
 document.getElementById('btnSubmitGcashProof').onclick = () => {
     const gcashRef = document.getElementById('clientGcashRef').value.trim();
@@ -4779,12 +4928,6 @@ function checkClientAutoLogin() {
 /* END: NEW JS FOR CLIENT PORTAL & REGISTRATION */
 /* =========================================== */
 
-/* --- CALCULATOR LOGIC --- */
-document.getElementById('navBtnCalculator').onclick = () => {
-    document.getElementById('modalCalculatorBackdrop').style.display = 'flex';
-    clearActiveNav();
-    document.getElementById('navBtnCalculator').classList.add('active');
-};
 document.getElementById('closeCalculator').onclick = () => {
     document.getElementById('modalCalculatorBackdrop').style.display = 'none';
     clearActiveNav();
@@ -5399,65 +5542,147 @@ document.getElementById('btnNetworkAgreement').onclick = async () => {
     document.body.appendChild(tempContainer);
 };
 
+
 /* ============================================================
-   NEW FUNCTION: Download Specific Transaction as PNG
+   FEATURE 1: DOWNLOAD SPECIFIC RECEIPT AS PNG
    ============================================================ */
 function downloadTransactionPng(accIdx, payIdx) {
     const acc = accounts[accIdx];
     
-    showToast('Generating Receipt Image...', 'info');
-
-    // 1. Generate the HTML using the updated calculator flow
-    // We pass 'false' for reminder, and payIdx to get specific data
+    // 1. Generate the HTML for this specific payment
+    // We pass 'false' for isReminder, and the payIdx to get specific data
     const htmlContent = generateInvoiceHtml(acc, false, payIdx);
-
+    
     // 2. Create a temporary container off-screen
     const tempContainer = document.createElement('div');
     tempContainer.style.position = 'fixed';
     tempContainer.style.top = '0';
     tempContainer.style.left = '0';
     tempContainer.style.width = '100%';
-    tempContainer.style.background = '#ffffff'; 
-    tempContainer.style.zIndex = '9999'; // On top of everything
+    tempContainer.style.height = '100%'; 
+    tempContainer.style.zIndex = '9999';
+    tempContainer.style.background = '#ffffff';
     tempContainer.style.display = 'flex';
     tempContainer.style.justifyContent = 'center';
-    tempContainer.style.alignItems = 'flex-start'; // Align top
-    tempContainer.style.padding = '20px';
-    
-    // Insert the HTML
+    tempContainer.style.alignItems = 'center';
     tempContainer.innerHTML = htmlContent;
+    
     document.body.appendChild(tempContainer);
+    showToast('Generating Receipt...', 'info');
 
-    // 3. Find the invoice element inside
     const targetElement = tempContainer.querySelector('.invoice-thermal');
 
-    // 4. Capture
+    // 3. Convert to Image
     html2canvas(targetElement, {
         scale: 2, // High quality
-        useCORS: true,
+        useCORS: true, 
         backgroundColor: '#ffffff'
     }).then(canvas => {
-        // 5. Download
-        const link = document.createElement('a');
-        link.href = canvas.toDataURL('image/png');
-        const dateStr = new Date().toISOString().slice(0,10);
-        link.download = `RECEIPT_${acc.accountNumber}_${dateStr}.png`;
-        document.body.appendChild(link);
-        link.click();
+        const filename = `RECEIPT_${acc.accountNumber}_${Date.now()}.png`;
         
-        // 6. Cleanup
-        document.body.removeChild(link);
-        document.body.removeChild(tempContainer);
-        showToast('Receipt Downloaded!', 'success');
+        canvas.toBlob(function(blob) {
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            
+            // Cleanup
+            setTimeout(() => {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+                document.body.removeChild(tempContainer);
+                showToast('Receipt Downloaded!', 'success');
+            }, 100);
+        }, 'image/png');
+        
     }).catch(err => {
         console.error(err);
         document.body.removeChild(tempContainer);
-        showToast('Error generating image.', 'error');
+        showToast('Error generating image', 'error');
     });
 }
+
+
+function renderDashboardWidgets() {
+    // 1. Total Clients
+    const activeCount = accounts.filter(a => a.status === 'Active').length;
+    document.getElementById('widgetTotalClients').textContent = activeCount;
+
+    // 2. Estimated Revenue (Sum of all Active Plans)
+    const estRev = accounts.reduce((sum, a) => {
+        return a.status === 'Active' ? sum + (a.plan.fee || 0) : sum;
+    }, 0);
+    document.getElementById('widgetRevenue').textContent = `₱${estRev.toLocaleString()}`;
+
+    // 3. Collections This Month
+    const currentMonthStr = new Date().toISOString().slice(0, 7); // YYYY-MM
+    let monthlyCollection = 0;
+    accounts.forEach(acc => {
+        acc.payments.forEach(p => {
+            if (p.date.startsWith(currentMonthStr)) {
+                monthlyCollection += Number(p.amount);
+            }
+        });
+    });
+    document.getElementById('widgetCollection').textContent = `₱${monthlyCollection.toLocaleString()}`;
+
+    // --- RENDER POINTS LEADERBOARD ---
+    const leaderboardList = document.getElementById('leaderboardList');
+    leaderboardList.innerHTML = '';
+
+    // Calculate total points and sort
+    const rankedAccounts = accounts.map(a => {
+        const totalPts = (a.points.advance || 0) + (a.points.ontime || 0) - (a.points.lost || 0);
+        return { ...a, totalPts };
+    }).sort((a, b) => b.totalPts - a.totalPts).slice(0, 10); // Top 10
+
+    rankedAccounts.forEach((acc, index) => {
+        let rankClass = 'rank-other';
+        if (index === 0) rankClass = 'rank-1';
+        if (index === 1) rankClass = 'rank-2';
+        if (index === 2) rankClass = 'rank-3';
+
+        const item = document.createElement('div');
+        item.className = 'leaderboard-row';
+        item.innerHTML = `
+            <div class="rank-badge ${rankClass}">${index + 1}</div>
+            <div style="flex-grow:1;">
+                <div style="font-weight:700; font-size:14px;">${acc.name}</div>
+                <div class="muted" style="font-size:11px;">${acc.accountNumber}</div>
+            </div>
+            <div style="text-align:right;">
+                <div style="font-weight:800; color:var(--accent-2); font-size:16px;">${acc.totalPts}</div>
+                <div class="muted" style="font-size:10px;">PTS</div>
+            </div>
+        `;
+        leaderboardList.appendChild(item);
+    });
+}
+function init(){
+  // ... existing code ...
+  
+  accounts.forEach(a => {
+      // ... existing loop code ...
+  });
+  saveAccounts();
+  
+  renderAccounts();
+  
+  // ... existing date logic ...
+
+  // NEW: Render the Widgets and Leaderboard
+  renderDashboardWidgets(); 
+  
+  renderPaymentAnalysis();  
+  
+  updatePendingClientsCount(); 
+  updatePendingUpgradesCount();
+  resetAutoLogoutTimer();
+}
+
 
 </script>
 </body>
 </html>
-
- 
