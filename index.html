@@ -2986,86 +2986,112 @@ function renderClientTally(clientTally) {
     });
 }
 
-function recomputePointsAndBalance(acc) {
+function recomputePointsAndBalance(acc){
   // Reset points
-  acc.points = { advance: 0, ontime: 0, lost: 0 };
+  acc.points = {advance:0, ontime:0, lost:0};
   
-  // 1. Calculate External Debts/Credits (Charges and Discounts)
+  // 1. Calculate Total Debts (Charges - Discounts)
   let totalDebts = 0;
   if(acc.charges) acc.charges.forEach(c => totalDebts += Number(c.amount));
-  
-  let totalDiscounts = 0;
-  if(acc.discounts) acc.discounts.forEach(d => totalDiscounts += Number(d.amount));
+  if(acc.discounts) acc.discounts.forEach(d => totalDebts -= Number(d.amount));
 
-  // 2. "Bucket" Logic for Points
-  // We simulate a running wallet. If Wallet >= Plan Fee, we pay a month and award a point.
+  // 2. Calculate Total Cash Paid & Logic for Points (Top-up supported)
+  let totalPaid = 0;
+  
+  // We need a "Running Wallet" to track partial payments accumulating to a full month
   let runningWallet = 0; 
   
-  // We must process payments in chronological order for this to work
+  // Sort payments by date to ensure the "Top-up" applies to the correct timeline
+  // We create a copy [...acc.payments] to avoid mutating the original order permanently if not desired
   const sortedPayments = [...acc.payments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   sortedPayments.forEach(p => {
-      const payAmt = Number(p.amount);
-      runningWallet += payAmt; // Add current payment to the bucket (includes past excess)
+      const amt = Number(p.amount);
+      totalPaid += amt;
+      runningWallet += amt;
+      
+      const d = new Date(p.date + 'T00:00:00').getDate();
 
-      // While the bucket has enough to cover a full monthly fee
+      // Penalty Point Logic: 
+      // This applies to the ACT of paying late, regardless of amount
+      if(d >= 21 && d <= 25) acc.points.lost++;
+      
+      // PLAN FULFILLMENT LOGIC (Supports Excess/Top-up)
+      // While the money in the wallet is enough to pay for a plan...
       while(runningWallet >= acc.plan.fee) {
-          // Determine Point Type based on the date of the payment that filled the bucket
-          const d = new Date(p.date + 'T00:00:00').getDate();
           
-          if(d <= 19) acc.points.advance++;
-          else if(d === 20) acc.points.ontime++;
-          else if(d >= 21 && d <= 25) acc.points.lost++; 
-          // (Days 26+ usually don't get points or are considered late/lost)
-
-          // Deduct the plan fee from the wallet
+          // Deduct the plan fee from the wallet (One month paid!)
           runningWallet -= acc.plan.fee;
+
+          // Award Point based on the DATE of the payment that completed this month
+          // If they paid 200 on the 1st, and 299 on the 20th, this block runs on the 20th.
+          if(d <= 19) {
+              acc.points.advance++;
+          } else if(d === 20) {
+              acc.points.ontime++;
+          }
+          // If completed after the 20th, no positive point is awarded (standard logic)
       }
   });
 
-  // 3. Final Balance Calculation
-  // The 'runningWallet' now holds the raw excess from payments.
-  // We apply Charges (deduct) and Discounts (add) to this final number.
+  // 3. Calculate Balance based on "Running Bill"
+  // Total Cash - Total Debts - (Plan * Months_Covered_By_Cash)
   
-  acc.excessLackingBalance = runningWallet - totalDebts + totalDiscounts;
+  let netCash = totalPaid - totalDebts;
+  let monthsFullyPaid = Math.floor(netCash / acc.plan.fee);
+  
+  // The balance is the remainder. 
+  let remainder = netCash % acc.plan.fee;
+  
+  // If netCash is negative (Lacking), the remainder logic works differently
+  if (netCash < 0) {
+      acc.excessLackingBalance = netCash; // Shows -500 etc.
+  } else {
+      acc.excessLackingBalance = remainder; // Shows 2.00
+  }
 
-  // 4. Update Next Due Date
-  // Calculate how many months are fully covered based on the plan fee logic
-  // (Simplified estimation for Next Due display)
+  // Determine Status based on coverage
   const billingDay = acc.billingDay || 20;
   const start = new Date(acc.createdAt || new Date());
   
-  // Calculate total months covered (Total Net Value / Fee)
-  const totalNetValue = (sortedPayments.reduce((s,p)=>s+Number(p.amount),0) + totalDiscounts - totalDebts);
-  const monthsCovered = Math.floor(totalNetValue / acc.plan.fee);
-  
+  // Estimate next due based on months paid
   let nextDueMonth = new Date(start);
-  if(monthsCovered > 0) {
-      // If we have history, add months covered to start date
-      nextDueMonth.setMonth(start.getMonth() + monthsCovered);
-      // Adjust to current year context if needed, but simple addition works best for "running" time
-  }
+  nextDueMonth.setMonth(start.getMonth() + monthsFullyPaid);
+  nextDueMonth.setDate(billingDay);
   
-  // Ensure next due is not in the past relative to "Now" if they are active? 
-  // Actually, for billing, we just want the mathematical next due.
-  // However, to keep it sync with the last payment date logic in your original code:
-  if(sortedPayments.length > 0) {
-      // Base it on the last "paid up" month
-      // Logic: If balance is positive, next due is future. If negative, it's past.
-      const now = new Date();
-      if (acc.excessLackingBalance >= 0) {
-          // If balance is positive, next due is next month
-          const d = new Date();
-          if(d.getDate() > billingDay) d.setMonth(d.getMonth() + 1);
-          d.setDate(billingDay);
-          acc.nextDue = d.toISOString().slice(0,10);
-      } else {
-          // If lacking, they are due immediately or overdue
-          // This keeps the red status active
-          acc.nextDue = computeNextDue(null, billingDay); 
+  // Update Next Due Date Logic
+  if(acc.payments.length > 0) {
+      // We rely on the sorted order or original order to find the "Latest" payment date context
+      // But purely for Next Due, we calculate from the TOTAL months covered
+      // Base calculation on Current Date vs Coverage
+      const today = new Date();
+      const coverageDate = new Date(today.getFullYear(), today.getMonth(), billingDay);
+      
+      // If we have paid enough to cover X months, project that date
+      // This is a simplified projection for display. 
+      // For strict billing, usually: Due Date = Start Date + (MonthsPaid * 1 Month)
+      
+      let baseDue = new Date(acc.createdAt);
+      // If created date is invalid, use today
+      if(isNaN(baseDue)) baseDue = new Date();
+      
+      baseDue.setDate(billingDay); // Align to billing day
+      
+      // Add months paid
+      baseDue.setMonth(baseDue.getMonth() + monthsFullyPaid);
+      
+      // If the calculated due date is in the past (e.g., they paid for last month but not this one),
+      // we need to show the upcoming due date.
+      if (baseDue < new Date()) {
+           // Standard "Next Billing Cycle" logic handled by global helper if strictly overdue
+           // But here we want to show exactly when their money runs out.
+           // If balance < 0, it means they are overdue NOW.
       }
+      
+      acc.nextDue = baseDue.toISOString().slice(0,10);
   }
 }
+
 
 
 
@@ -5004,83 +5030,76 @@ function showClientPortal(account) {
     document.getElementById('clientAccStatus').className = getStatusClass(account.status, account.nextDue, account.plan.fee);
     document.getElementById('clientAccNextDue').textContent = new Date(account.nextDue).toLocaleDateString();
 
-    recomputePointsAndBalance(account); 
-    
-    // --- BALANCE DISPLAY ---
+    recomputePointsAndBalance(account); // Ensure balance is up-to-date
     const balanceEl = document.getElementById('clientAccBalance');
-    const balance = account.excessLackingBalance;
     
+    // --- FEATURE 2: Specific Balance Text ---
+    const balance = account.excessLackingBalance;
     if (balance < 0) {
         balanceEl.textContent = `Lacking: ₱${Math.abs(balance).toFixed(2)}`;
         balanceEl.style.color = 'red';
     } else if (balance > 0) {
-        balanceEl.textContent = `Excess (Wallet): ₱${balance.toFixed(2)}`;
-        balanceEl.style.color = 'var(--accent-2)';
+        balanceEl.textContent = `Excess: ₱${balance.toFixed(2)}`;
+        balanceEl.style.color = 'var(--accent-2)'; // Positive color
     } else {
         balanceEl.textContent = `Balanced: ₱0.00`;
-        balanceEl.style.color = 'var(--text)';
+        balanceEl.style.color = 'var(--text)'; // Neutral color
     }
-
-    // --- AMOUNT DUE CALCULATION (Per Your Request) ---
-    // Formula: Plan Fee - Excess = To Pay
-    
+    // --- END FEATURE 2 ---
+        // --- FEATURE 3: Calculate Amount to be Paid ---
     let feeAdjustment = 0;
     // Check for 12-month point discounts
-    if (account.points.advance >= 12) feeAdjustment = account.plan.fee;
-    else if (account.points.ontime >= 12) feeAdjustment = account.plan.fee * 0.50;
+    if (account.points.advance >= 12) {
+        feeAdjustment = account.plan.fee;
+    } else if (account.points.ontime >= 12) {
+        feeAdjustment = account.plan.fee * 0.50;
+    }
     
-    const basePlanFee = account.plan.fee - feeAdjustment;
-    let finalAmountDue = 0;
-
-    // Logic: If they have excess, subtract it from the plan fee
-    if (balance > 0) {
-        finalAmountDue = basePlanFee - balance;
-        if (finalAmountDue < 0) finalAmountDue = 0; // Fully covered
-    } else {
-        // If they are negative (Lacking), they owe the Plan + The Lacking Amount
-        finalAmountDue = basePlanFee + Math.abs(balance);
+    const nextBillBaseFee = account.plan.fee - feeAdjustment;
+    let amountDue = nextBillBaseFee - account.excessLackingBalance;
+    
+    if (amountDue < 0) {
+        amountDue = 0; // You can't "pay" a negative amount
     }
     
     const amountDueEl = document.getElementById('clientAccAmountDue');
-    amountDueEl.innerHTML = `
-        <div style="font-size: 12px; color: var(--muted); font-weight: 400;">
-            Plan (₱${basePlanFee}) - Excess (₱${(balance > 0 ? balance : 0).toFixed(2)})
-            ${balance < 0 ? `+ Lacking (₱${Math.abs(balance).toFixed(2)})` : ''}
-        </div>
-        <div style="font-size: 24px; font-weight: 800; color: var(--accent);">
-            ₱${finalAmountDue.toFixed(2)}
-        </div>
-    `;
+    amountDueEl.textContent = `₱${amountDue.toFixed(2)}`;
     
     if (feeAdjustment > 0) {
-        amountDueEl.innerHTML += ` <span class="badge" style="background: var(--toast-success); font-size: 10px;">Loyalty Discount Applied!</span>`;
+        amountDueEl.innerHTML += ` <span class="badge" style="background: var(--toast-success); font-size: 10px;">Discount Applied!</span>`;
     }
+    // --- END FEATURE 3 ---
 
     renderClientPaymentHistory(account);
-    
-    // Populate Upgrade Options
+        // --- Populate Upgrade Plan Dropdown ---
     const currentPlanValue = `${account.plan.name}|${account.plan.fee}|${account.plan.speed}`;
     document.getElementById('clientCurrentPlanName').textContent = `${account.plan.name} (₱${account.plan.fee})`;
     
     const upgradeSelect = document.getElementById('clientPlanUpgradeSelect');
-    upgradeSelect.innerHTML = ''; 
+    upgradeSelect.innerHTML = ''; // Clear options
     
     AVAILABLE_PLANS.forEach(plan => {
+        // Only show plans that are *not* the current one
         if (plan.value !== currentPlanValue) {
             const opt = document.createElement('option');
             opt.value = plan.value;
             opt.textContent = plan.text;
-            if (plan.value.split('|')[1] > account.plan.fee && !upgradeSelect.value) {
-                opt.selected = true;
+            // Optionally, select the next highest plan by default
+            if (plan.value.split('|')[1] > account.plan.fee) {
+                if (!upgradeSelect.value) {
+                    opt.selected = true;
+                }
             }
             upgradeSelect.appendChild(opt);
         }
     });
 
+    // Disable button if a request is pending
     const pendingReq = pendingUpgrades.some(r => r.accountNumber === account.accountNumber);
     document.getElementById('btnClientRequestUpgrade').disabled = pendingReq;
     document.getElementById('btnClientRequestUpgrade').textContent = pendingReq ? 'Request Pending...' : 'Request Upgrade';
 
+    
     modalClientPortalBackdrop.style.display = 'flex';
 }
 
@@ -6192,4 +6211,4 @@ setInterval(async () => {
 </html>
  
 
-  
+   
