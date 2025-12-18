@@ -1192,6 +1192,35 @@
 }
 
 
+  /* --- DYNAMIC STATUS COLORS --- */
+  /* 1. PAID (Green) */
+  .row-paid { border-left: 6px solid #4CAF50 !important; background: rgba(76, 175, 80, 0.05) !important; }
+  .text-paid { color: #2e7d32; font-weight: 700; }
+
+  /* 2. VALIDITY PERIOD 1-20 (Blue) */
+  .row-due { border-left: 6px solid #2196F3 !important; background: rgba(33, 150, 243, 0.05) !important; }
+  .text-due { color: #1565C0; font-weight: 700; }
+
+  /* 3. PENALTY PERIOD 21-25 (Orange) */
+  .row-penalty { border-left: 6px solid #FF9800 !important; background: rgba(255, 152, 0, 0.1) !important; }
+  .text-penalty { color: #E65100; font-weight: 700; animation: pulseText 2s infinite; }
+
+  /* 4. TERMINATED 26+ (Red) */
+  .row-terminated { border-left: 6px solid #F44336 !important; background: rgba(244, 67, 54, 0.1) !important; }
+  .text-terminated { color: #D32F2F; font-weight: 800; }
+
+  /* 5. RECONNECTION / SUSPENDED (Violet) */
+  .row-reconnect { border-left: 6px solid #9C27B0 !important; background: rgba(156, 39, 176, 0.05) !important; }
+  .text-reconnect { color: #7B1FA2; font-weight: 700; }
+
+  @keyframes pulseText {
+      0% { opacity: 1; }
+      50% { opacity: 0.6; }
+      100% { opacity: 1; }
+  }
+
+
+
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -2784,30 +2813,91 @@ function getStatusClass(status, nextDue, fee) {
     return 'status-active';
 }
 
+/* =========================
+   NEW STATUS LOGIC HELPER
+   ========================= */
+function determineAccountState(acc) {
+    const today = new Date();
+    const day = today.getDate();
+    // Get current YYYY-MM to check if a payment exists for this month
+    const currentMonthStr = today.toISOString().slice(0, 7);
+    
+    // Check if paid this month (simplistic check: matches YYYY-MM date string)
+    // Also checks if they paid in advance (Last payment date is in future or current month)
+    let isPaid = false;
+    if (acc.payments && acc.payments.length > 0) {
+        const lastPay = acc.payments[acc.payments.length - 1];
+        if (lastPay.date.startsWith(currentMonthStr)) {
+            isPaid = true;
+        }
+        // Logic for Advance Payment coverage
+        // If nextDue is in the future compared to now, consider them "Paid/Good"
+        if(new Date(acc.nextDue) > today && acc.excessLackingBalance >= 0) {
+            isPaid = true;
+        }
+    }
+
+    // 1. Manually Terminated takes precedence
+    if (acc.status === 'Terminated') {
+        return { css: 'row-terminated', textCss: 'text-terminated', statusText: 'Terminated', autoUpdate: false };
+    }
+
+    // 2. Manually Suspended (Reconnection Needed)
+    if (acc.status === 'Suspended') {
+        return { css: 'row-reconnect', textCss: 'text-reconnect', statusText: 'Suspended (Recon)', autoUpdate: false };
+    }
+
+    // 3. PAID (Green)
+    if (isPaid) {
+        return { css: 'row-paid', textCss: 'text-paid', statusText: 'Active (Paid)', autoUpdate: false };
+    }
+
+    // 4. NOT PAID LOGIC (By Date)
+    
+    // Day 26 - 31: Auto Terminate (Red)
+    if (day >= 26) {
+        // Triggers auto-update in render function
+        return { css: 'row-terminated', textCss: 'text-terminated', statusText: 'Terminated (No Pay)', autoUpdate: true, newStatus: 'Terminated' };
+    }
+    
+    // Day 21 - 25: Penalty Period (Orange)
+    if (day >= 21 && day <= 25) {
+        return { css: 'row-penalty', textCss: 'text-penalty', statusText: 'Active (Penalty)', autoUpdate: false };
+    }
+
+    // Day 1 - 20: Validity Period (Blue)
+    return { css: 'row-due', textCss: 'text-due', statusText: 'Active (Due)', autoUpdate: false };
+}
+
+
+/* =========================
+   UPDATED RENDER ACCOUNTS
+   ========================= */
 function renderAccounts(){
   const q = (document.getElementById('search')?.value || '').toLowerCase().trim();
   accountsTbody.innerHTML = '';
   quickAccount.innerHTML = '';
 
   let clientTally = [];
+  let saveNeeded = false; // Flag to save if we auto-terminate anyone
 
-  // 5. Account Manager - Separate Boxes Style
   accounts.forEach((a, idx)=>{
-        const nextDueDt = new Date(a.nextDue + 'T00:00:00');
-    const now = new Date();
-    // Feature 1: Auto disconnect if date is 26th or later (20 + 6)
-    if (a.status === 'Active' && now > nextDueDt && now.getDate() >= 26) {
-        a.status = 'Terminated';
-        saveAccounts();
-    }
-
-    const statusClass = getStatusClass(a.status, a.nextDue, a.plan.fee);
-
+    // --- SEARCH FILTER ---
     if(q){
       const hay = `${a.accountNumber} ${a.name} ${a.address} ${a.plan.name}`.toLowerCase();
       if(!hay.includes(q)) return;
     }
+
     recomputePointsAndBalance(a);
+
+    // --- NEW: DETERMINE DYNAMIC STATE ---
+    const state = determineAccountState(a);
+
+    // Apply Auto-Termination side effect
+    if(state.autoUpdate && state.newStatus && a.status !== state.newStatus) {
+        a.status = state.newStatus;
+        saveNeeded = true;
+    }
 
     // Total Paid for Tally
     const totalPaid = a.payments.reduce((sum, p) => sum + Number(p.amount), 0);
@@ -2818,8 +2908,10 @@ function renderAccounts(){
     });
 
     const accountRow = document.createElement('tr');
-    accountRow.className = 'account-box-row';
+    // Apply the dynamic CSS class here
+    accountRow.className = `account-box-row ${state.css}`; 
     accountRow.setAttribute('onclick', `openAccount(${idx})`);
+    
     accountRow.innerHTML = `
         <td colspan="6" style="padding: 0; border: none;">
             <div class="account-info-grid">
@@ -2827,19 +2919,31 @@ function renderAccounts(){
                 <div><span class="muted-label">Customer</span><span class="account-name">${a.name}</span></div>
                 <div><span class="muted-label">Plan (₱)</span><span class="plan-fee">${a.plan.name} — ₱${a.plan.fee}</span></div>
                 <div><span class="muted-label">Next Due</span>${new Date(a.nextDue).toLocaleDateString()}</div>
-                <div><span class="muted-label">Status</span><span class="${statusClass}">${a.status}</span></div>
+                
+                <div>
+                    <span class="muted-label">Status</span>
+                    <span class="${state.textCss}">${state.statusText}</span>
+                </div>
+                
                 <div style="text-align: center;"><span class="muted-label">Points</span><span class="badge">${(a.points.advance||0)+(a.points.ontime||0)-(a.points.lost||0)}</span></div>
             </div>
         </td>
     `;
     accountsTbody.appendChild(accountRow);
 
-
     const opt = document.createElement('option'); opt.value = idx; opt.textContent = `${a.accountNumber} — ${a.name}`; quickAccount.appendChild(opt);
   });
+
+  // If auto-termination happened, save to storage
+  if(saveNeeded) {
+      saveAccounts();
+  }
+
   renderPaymentAnalysis();
   renderClientTally(clientTally);
 }
+
+
 
 function renderClientTally(clientTally) {
     clientTally.sort((a, b) => b.totalPaid - a.totalPaid);
