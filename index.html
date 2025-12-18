@@ -2857,109 +2857,79 @@ function renderClientTally(clientTally) {
 }
 
 function recomputePointsAndBalance(acc){
-  const originalPoints = {advance:0, ontime:0, lost:0};
-  let currentBalance = 0;
-
+  // Reset points
   acc.points = {advance:0, ontime:0, lost:0};
   
-  // Ensure arrays exist
-  acc.charges = acc.charges || []; 
-  acc.discounts = acc.discounts || [];
+  // 1. Calculate Total Debts (Charges - Discounts)
+  let totalDebts = 0;
+  if(acc.charges) acc.charges.forEach(c => totalDebts += Number(c.amount));
+  if(acc.discounts) acc.discounts.forEach(d => totalDebts -= Number(d.amount));
 
-  // 1. Process Extra Charges (Adds to debt)
-  acc.charges.forEach(c => {
-      currentBalance -= Number(c.amount); 
-  });
-
-  // 2. Process Discounts (Reduces debt/Adds to credits)
-  acc.discounts.forEach(d => {
-      currentBalance += Number(d.amount);
-  });
-
-  // 3. Process Payments & Monthly Fees
-  acc.payments.forEach(p=>{
-    const d = new Date(p.date + 'T00:00:00').getDate();
-    const planFee = acc.plan.fee;
-    
-    // SNAPSHOT: Balance BEFORE this payment
-    p.excessLackingBalanceBefore = currentBalance;
-    
-    // LOGIC: Calculate how many future months were covered by the PREVIOUS balance
-    // We use Math.max(0, ...) because we don't count negative balance as "negative months covered"
-    const monthsCoveredBefore = Math.floor(Math.max(0, currentBalance) / planFee);
-
-    // Apply the Payment
-    const grossPayment = Number(p.amount || 0);
-    let amountToApply = grossPayment + currentBalance;
-
-    // Surcharge Logic (21st-25th)
-    let surcharge = 0;
-    if(d >= 21 && d <= 25){
-      surcharge = Math.round(planFee * 0.10);
-      acc.points.lost = (acc.points.lost||0) + 1;
-    }
-    p.surchargeApplied = surcharge;
-
-    // Discount Logic
-    let feeAdjustment = 0;
-    if (acc.points.advance >= 12) {
-      feeAdjustment = planFee;
-      acc.points.advance -= 12;
-    } else if (acc.points.ontime >= 12) {
-      feeAdjustment = planFee * 0.50;
-      acc.points.ontime -= 12;
-    }
-    p.discountApplied = feeAdjustment;
-
-    // Calculate Bill for THIS month
-    let amountDueThisMonth = planFee - feeAdjustment + surcharge;
-    
-    // Handle Reconnection special case
-    let finalAmountDue = (p.type === 'reconnect') ? p.appliedTotal : amountDueThisMonth;
-
-    // --- 1. BASE POINT CALCULATION (For the Current Month) ---
-    // Check if the total money available (Old Bal + New Pay) is enough to cover THIS month
-    // "If she pay 600... grant 1 point ontime... no points for next month"
-    if (amountToApply >= finalAmountDue) {
-        // Grant point based on date
-        if(d >= 1 && d <= 19) acc.points.advance++;
-        else if(d === 20) acc.points.ontime++;
-    }
-
-    // Update the Running Balance (Deduct this month's fee)
-    currentBalance = amountToApply - finalAmountDue;
-    
-    p.balanceApplied = currentBalance;
-    p.appliedTotal = finalAmountDue;
-    if (!p.referenceNumber) p.referenceNumber = generateRefNumber(acc.accountNumber, p.date);
-
-    // --- 2. EXTRA ADVANCE POINTS CALCULATION (For Future Months) ---
-    // "5000 - 500 = 4500... next 9 months covered... 9 points"
-    // "2200 - 500 = 1700... next 3 months covered... 3 points"
-    
-    // Calculate how many future months are covered NOW
-    const monthsCoveredAfter = Math.floor(Math.max(0, currentBalance) / planFee);
-
-    // Calculate the difference (Did we gain coverage?)
-    // This prevents double-counting if they already had a huge balance
-    const extraPoints = monthsCoveredAfter - monthsCoveredBefore;
-
-    if (extraPoints > 0) {
-        acc.points.advance += extraPoints;
-    }
-    // Note: If extraPoints is 0 or negative (consuming balance), we don't add points.
-
-  });
-
-  acc.excessLackingBalance = currentBalance;
-
-  // AUTO-FREEZE LOGIC
-  const now = new Date();
-  const nextDueDt = new Date(acc.nextDue + 'T00:00:00');
-  if (acc.status === 'Active' && now > nextDueDt && now.getDate() >= 26) {
-      if(acc.excessLackingBalance < 0) {
-          acc.status = 'Terminated';
+  // 2. Calculate Total Cash Paid
+  let totalPaid = 0;
+  acc.payments.forEach(p => {
+      totalPaid += Number(p.amount);
+      
+      // Point Logic: Advance/Ontime
+      const d = new Date(p.date + 'T00:00:00').getDate();
+      if(d >= 21 && d <= 25) acc.points.lost++;
+      
+      // Simple Point Logic based on raw payment count vs Plan
+      // If payment >= plan, give point. (Simplified for robustness)
+      if(Number(p.amount) >= acc.plan.fee) {
+          if(d <= 19) acc.points.advance++;
+          else if(d === 20) acc.points.ontime++;
+          
+          // Extra points for multi-month
+          const extraMonths = Math.floor(Number(p.amount) / acc.plan.fee) - 1;
+          if(extraMonths > 0) acc.points.advance += extraMonths;
       }
+  });
+
+  // 3. LOGIC CHANGE: Calculate Balance based on "Running Bill"
+  // We determine how many months have passed since creation to now (or last active date)
+  // But to satisfy the requirement "Reflect the 2 excess", we simply do:
+  // Total Cash - Total Debts - (Plan * Months_Covered_By_Cash)
+  
+  let netCash = totalPaid - totalDebts;
+  let monthsFullyPaid = Math.floor(netCash / acc.plan.fee);
+  
+  // The balance is the remainder. 
+  // Example: Paid 1000. Plan 499. 1000 / 499 = 2 months. Remainder = 2.
+  // This satisfies your requirement: "Balance Excess = 2"
+  let remainder = netCash % acc.plan.fee;
+  
+  // If netCash is negative (Lacking), the remainder logic works differently
+  if (netCash < 0) {
+      acc.excessLackingBalance = netCash; // Shows -500 etc.
+  } else {
+      acc.excessLackingBalance = remainder; // Shows 2.00
+  }
+
+  // Determine Status based on coverage
+  // If we paid for 2 months, we are good for 2 months.
+  // We verify if the current date is covered by (StartDate + MonthsFullyPaid)
+  const billingDay = acc.billingDay || 20;
+  const start = new Date(acc.createdAt || new Date());
+  // Estimate next due based on months paid
+  // (Simplified for this display logic)
+  let nextDueMonth = new Date(start);
+  nextDueMonth.setMonth(start.getMonth() + monthsFullyPaid);
+  nextDueMonth.setDate(billingDay);
+  
+  // If we have payments, update next due accurately
+  if(acc.payments.length > 0) {
+      const lastPay = acc.payments[acc.payments.length-1];
+      const pDate = new Date(lastPay.date);
+      // If it was advance, add months
+      if(Number(lastPay.amount) > acc.plan.fee) {
+          const covered = Math.floor(Number(lastPay.amount)/acc.plan.fee);
+          pDate.setMonth(pDate.getMonth() + covered);
+      } else {
+          pDate.setMonth(pDate.getMonth() + 1);
+      }
+      pDate.setDate(billingDay);
+      acc.nextDue = pDate.toISOString().slice(0,10);
   }
 }
 
@@ -3766,7 +3736,6 @@ function updateQuickPayUI() {
 }
 
 // 2. Calculator: Updates the Amount field automatically
-// REPLACE your existing calculateQuickTotal function with this one
 function calculateQuickTotal() {
     const idx = Number(document.getElementById('quickAccount').value);
     if(Number.isNaN(idx) || !accounts[idx]) return;
@@ -3782,34 +3751,26 @@ function calculateQuickTotal() {
     }
     else if (category === 'advance') {
         const months = Number(document.getElementById('quickAdvanceMonths').value) || 1;
-        // Calculate the exact plan cost for X months (e.g., 499 * 2 = 998)
-        const totalPlanCost = fee * months; 
+        // Exact Math
+        amountInput.value = fee * months; 
         
-        // We set this as the default value, but user can edit it to 1000
-        amountInput.value = totalPlanCost; 
-        
-        // Calculate coverage text
-        const startMonthStr = document.getElementById('quickBillingMonth').value; // YYYY-MM
-        if(startMonthStr) {
-            let dateCursor = new Date(startMonthStr + "-01");
-            let coverStr = [];
-            for(let i=0; i<months; i++) {
-                coverStr.push(dateCursor.toLocaleString('default', { month: 'short' }));
-                dateCursor.setMonth(dateCursor.getMonth() + 1);
-            }
-            document.getElementById('quickAdvanceCoverage').textContent = coverStr.join(", ");
-            document.getElementById('quickNote').value = `Advance: ${coverStr.join(", ")}`;
-        }
+        // Auto-note
+        document.getElementById('quickNote').value = `Advance Payment (${months} Months)`;
     }
-    else if (category === 'penalty' || category === 'reconnect') {
+    else if (category === 'penalty') {
         const percent = Number(document.getElementById('quickPercent').value) || 0;
         const calc = fee * (percent / 100);
         amountInput.value = calc.toFixed(2);
-        
-        if(category === 'reconnect') document.getElementById('quickNote').value = "Reconnection Fee";
-        if(category === 'penalty') document.getElementById('quickNote').value = "Late Penalty";
+        document.getElementById('quickNote').value = "Late Penalty";
+    }
+    else if (category === 'reconnect') {
+        const percent = Number(document.getElementById('quickPercent').value) || 0;
+        const calc = fee * (percent / 100);
+        amountInput.value = calc.toFixed(2);
+        document.getElementById('quickNote').value = "Reconnection Fee";
     }
 }
+
 
 // 3. Process Button Logic
 document.getElementById('btnQuickPay').onclick = () => {
@@ -4229,248 +4190,169 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 /* ============================================================
    UPDATED INVOICE GENERATOR (Specific Formulas & Advance Logic)
    ============================================================ */
-// REPLACE your existing generateInvoiceHtml function with this one
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
-    
-    // --- 1. SETUP VARIABLES ---
+    // 1. SETUP DATA
     let targetPayment = null;
-    let paymentAmount = 0;
-    let paymentDate = new Date().toISOString(); 
-    let refNum = isReminder ? "REMINDER" : "REF-000";
-    let paymentNote = "";
-    let paymentType = "bill"; 
-    
     if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
         targetPayment = acc.payments[specificPaymentIndex];
     } else if (!isReminder && acc.payments.length > 0) {
         targetPayment = acc.payments[acc.payments.length - 1];
     }
 
-    if (targetPayment) {
-        paymentAmount = Number(targetPayment.amount);
-        paymentDate = targetPayment.date;
-        refNum = targetPayment.referenceNumber || "REF";
-        paymentNote = targetPayment.note || "";
-        paymentType = targetPayment.type || "bill";
-    }
-
-    const dateObj = new Date(paymentDate);
-    const displayDate = dateObj.toLocaleDateString();
+    let paymentAmount = targetPayment ? Number(targetPayment.amount) : 0;
+    let paymentDate = targetPayment ? targetPayment.date : new Date().toISOString().slice(0,10);
+    let refNum = targetPayment ? (targetPayment.referenceNumber || "REF-000") : "REMINDER";
     
-    // For Reminder, base it on Next Due. For Receipt, base it on Payment Date.
-    const billDateRef = isReminder ? new Date(acc.nextDue) : dateObj;
-    const billingMonthDisplay = billDateRef.toLocaleString('default', { month: 'long', year: 'numeric' });
-    const billingMonthFilter = billDateRef.toISOString().slice(0, 7); 
+    const planFee = acc.plan.fee;
+    const planName = acc.plan.name;
+    
+    // --- CALCULATE EXTRAS (Charges/Discounts for this Month) ---
+    // We filter charges/discounts to match the payment month
+    const billingMonthFilter = paymentDate.slice(0, 7); 
+    let itemCharges = 0;
+    let penalties = 0;
+    let reconnection = 0;
+    let discounts = 0;
+    let extraRowsHtml = '';
 
-    // --- 2. POINTS DISPLAY ---
-    const pAdv = acc.points.advance || 0;
-    const pTime = acc.points.ontime || 0;
-    const pLost = acc.points.lost || 0;
-
-    // --- 3. BASE PLAN CALCULATION (Modified for Advance Logic) ---
-    let planName = acc.plan.name;
-    let planFee = acc.plan.fee;
-    let baseAmount = planFee;
-    let billingDesc = "Monthly Service Fee";
-
-    // LOGIC: If it's an Advance Payment Receipt, multiply Plan Fee by Months Coverage
-    if (!isReminder && paymentType === 'advance') {
-        // e.g., Paid 1000 / Plan 499 = ~2 months
-        const monthsPaid = Math.floor(paymentAmount / planFee) || 1;
-        if(monthsPaid > 1) {
-            baseAmount = planFee * monthsPaid; // e.g. 998
-            billingDesc = `Advance Payment (${monthsPaid} Months)`;
-            planName += ` x ${monthsPaid}`;
-        }
-    }
-
-    // --- 4. EXTRAS CALCULATION ---
-    let extraItemsHtml = '';
-    let totalAdditions = 0; // Charges
-    let totalDeductions = 0; // Discounts
-    let notesArr = []; 
-
-    // A. Charges
     if(acc.charges) {
         acc.charges.forEach(c => {
-            if(c.date.startsWith(billingMonthFilter) || (targetPayment && c.date === targetPayment.date)) {
-                extraItemsHtml += `
-                <div class="therm-row" style="color:var(--toast-error);">
-                    <span>[+] ${c.note || 'Extra Charge'}</span>
-                    <span>₱${Number(c.amount).toFixed(2)}</span>
-                </div>`;
-                totalAdditions += Number(c.amount);
+            if(c.date.startsWith(billingMonthFilter)) {
+                if(c.category === 'penalty') penalties += Number(c.amount);
+                else if(c.category === 'reconnect') reconnection += Number(c.amount);
+                else itemCharges += Number(c.amount);
+                
+                extraRowsHtml += `<div class="therm-row" style="color:red;"><span>[+] ${c.note}</span><span>${Number(c.amount).toFixed(2)}</span></div>`;
             }
         });
     }
-
-    // B. Discounts
     if(acc.discounts) {
         acc.discounts.forEach(d => {
-            if(d.date.startsWith(billingMonthFilter) || (targetPayment && d.date === targetPayment.date)) {
-                extraItemsHtml += `
-                <div class="therm-row" style="color:var(--toast-success);">
-                    <span>[-] ${d.note || 'Discount'}</span>
-                    <span>-₱${Number(d.amount).toFixed(2)}</span>
-                </div>`;
-                totalDeductions += Number(d.amount);
+            if(d.date.startsWith(billingMonthFilter)) {
+                discounts += Number(d.amount);
+                extraRowsHtml += `<div class="therm-row" style="color:green;"><span>[-] ${d.note}</span><span>${Number(d.amount).toFixed(2)}</span></div>`;
             }
         });
     }
-    
-    if(targetPayment && targetPayment.surchargeApplied > 0) {
-        extraItemsHtml += `
-        <div class="therm-row" style="color:var(--toast-error);">
-            <span>[+] Late Penalty</span>
-            <span>₱${Number(targetPayment.surchargeApplied).toFixed(2)}</span>
-        </div>`;
-        totalAdditions += Number(targetPayment.surchargeApplied);
-    }
 
-    // --- 5. CALCULATE TOTALS (Specific Formula Application) ---
-    
-    // SUBTOTAL = Plan(s) + Charges + Penalty - Discount
-    // e.g. 998 + 0 + 0 - 0 = 998
-    let subTotal = baseAmount + totalAdditions - totalDeductions;
-    
-    let finalRowLabel = "";
+    // --- FORMULA IMPLEMENTATION ---
+
+    let htmlBody = '';
+    let finalLabel = '';
     let finalValue = 0;
-    let finalColor = "black";
-    let middleRowHtml = "";
+    let finalColor = 'black';
 
     if (isReminder) {
-        // --- FORMULA 1: REMINDER ---
-        // Subtotal (499) - Excess Balance (2) = Total (497)
+        // --- REMINDER LOGIC ---
+        // Formula: 499 (Plan) + Extras = Subtotal - Excess Balance = Total to Pay
         
-        const currentBalance = acc.excessLackingBalance; 
+        let subTotal = planFee + itemCharges + penalties + reconnection - discounts;
         
-        let adjustmentHtml = "";
-        let adjustmentVal = 0;
-
-        // If Balance is positive (Excess), we SUBTRACT it from bill
-        if (currentBalance > 0) {
-             adjustmentHtml = `
-             <div class="therm-row" style="font-size: 12px; color: var(--accent-2);">
-                <span>Less: Wallet Excess</span>
-                <span>-₱${Math.abs(currentBalance).toFixed(2)}</span>
-             </div>`;
-             adjustmentVal = currentBalance; // Positive 2
-        } 
-        // If Balance is negative (Lacking/Debt), we ADD it to bill
-        else if (currentBalance < 0) {
-             adjustmentHtml = `
-             <div class="therm-row" style="font-size: 12px; color: red;">
-                <span>Add: Previous Lacking</span>
-                <span>+₱${Math.abs(currentBalance).toFixed(2)}</span>
-             </div>`;
-             adjustmentVal = currentBalance; // Negative number
-        }
-
-        // CALCULATION: Subtotal - Excess (or + Lacking)
-        let totalToPay = subTotal - adjustmentVal; 
+        // "Excess Balance" is the current remaining balance on the account (e.g., 2.00)
+        let excessBalance = acc.excessLackingBalance; // from recomputePointsAndBalance
         
-        if(totalToPay < 0) totalToPay = 0; 
+        // Your Formula: 499 (subtotal) - 2 (excess) = 497
+        // If balance is negative (lacking), subtracting a negative adds it. 499 - (-500) = 999. Correct.
+        let totalToPay = subTotal - excessBalance;
+        if(totalToPay < 0) totalToPay = 0;
 
-        middleRowHtml = `
+        htmlBody = `
+            <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000;">BILLING STATEMENT</div>
+            
+            <div class="therm-row"><span>Monthly Plan (${planName})</span><span>${planFee.toFixed(2)}</span></div>
+            ${extraRowsHtml}
+            
             <div class="therm-divider"></div>
-            <div class="therm-row" style="font-weight:700;">
-                <span>SUBTOTAL (Current Bill)</span>
-                <span>₱${subTotal.toFixed(2)}</span>
+            <div class="therm-row" style="font-weight:700;"><span>SUBTOTAL</span><span>${subTotal.toFixed(2)}</span></div>
+            
+            <div class="therm-row" style="color: var(--accent-2);">
+                <span>LESS: EXCESS BALANCE</span>
+                <span>-${excessBalance.toFixed(2)}</span>
             </div>
-            ${adjustmentHtml}
+            
+            <div class="therm-divider"></div>
+            <div class="therm-row" style="font-size:16px; font-weight:800;">
+                <span>TOTAL TO BE PAID</span>
+                <span>₱${totalToPay.toFixed(2)}</span>
+            </div>
         `;
-
-        finalRowLabel = "TOTAL AMOUNT TO PAY";
-        finalValue = totalToPay; // 497
-        finalColor = "black";
 
     } else {
-        // --- FORMULA 2: RECEIPT (Advance Logic) ---
-        // Subtotal (998) - Amount Paid (1000) = Balance (-2, but shown as Excess 2)
-        
-        // Visual Balance for Receipt = Amount Paid - Subtotal
-        // 1000 - 998 = 2 (Excess)
-        // 1000 - 1500 = -500 (Lacking)
-        let receiptBalance = paymentAmount - subTotal;
+        // --- RECEIPT LOGIC ---
+        // Formula: Plan x Months + Extras = Subtotal. 
+        // Subtotal - Amount Paid = Balance (Excess/Lacking).
 
-        middleRowHtml = `
+        // 1. Determine Months Paid
+        // e.g. Paid 1000 / Plan 499 = 2.004 -> 2 Months
+        let monthsPaid = Math.floor(paymentAmount / planFee);
+        if(monthsPaid < 1) monthsPaid = 1;
+
+        // 2. Calculate Base
+        let baseAmount = planFee * monthsPaid;
+        let planDesc = monthsPaid > 1 ? `${planName} x ${monthsPaid} Months` : planName;
+
+        // 3. Calculate Subtotal
+        let subTotal = baseAmount + itemCharges + penalties + reconnection - discounts;
+
+        // 4. Calculate Final Balance (Excess/Lacking)
+        // Your Formula: 998 (Subtotal) - 1000 (Paid) = -2 (Result)
+        // You want Result to be positive "2" labelled as Excess.
+        let mathResult = subTotal - paymentAmount;
+        
+        // Display Logic
+        if (mathResult < 0) {
+            finalLabel = "EXCESS (WALLET)";
+            finalValue = Math.abs(mathResult); // Convert -2 to 2
+            finalColor = "var(--accent-2)"; // Gold
+        } else if (mathResult > 0) {
+            finalLabel = "LACKING (BALANCE)";
+            finalValue = mathResult;
+            finalColor = "red";
+        } else {
+            finalLabel = "BALANCE";
+            finalValue = 0;
+        }
+
+        htmlBody = `
+            <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000;">OFFICIAL RECEIPT</div>
+
+            <div class="therm-row"><span>${planDesc}</span><span>${baseAmount.toFixed(2)}</span></div>
+            ${extraRowsHtml}
+
             <div class="therm-divider"></div>
-            <div class="therm-row" style="font-weight:700;">
-                <span>SUBTOTAL</span>
-                <span>₱${subTotal.toFixed(2)}</span>
-            </div>
-            <div class="therm-row" style="font-size: 14px; margin-top: 5px;">
+            <div class="therm-row" style="font-weight:700;"><span>SUBTOTAL</span><span>${subTotal.toFixed(2)}</span></div>
+            
+            <div class="therm-row">
                 <span>LESS: AMOUNT PAID</span>
-                <span style="font-weight:800;">-₱${paymentAmount.toFixed(2)}</span>
+                <span style="font-weight:700;">-${paymentAmount.toFixed(2)}</span>
+            </div>
+
+            <div class="therm-divider"></div>
+            <div class="therm-row" style="font-size:16px; font-weight:800;">
+                <span>${finalLabel}</span>
+                <span style="color:${finalColor}">₱${finalValue.toFixed(2)}</span>
             </div>
         `;
-
-        if (receiptBalance >= 0) {
-            finalRowLabel = "EXCESS BALANCE (WALLET)";
-            finalValue = receiptBalance; // Show 2.00
-            finalColor = "var(--accent-2)"; 
-        } else {
-            finalRowLabel = "LACKING BALANCE";
-            finalValue = Math.abs(receiptBalance); 
-            finalColor = "red";
-        }
     }
 
-    let invoiceNote = paymentNote;
-    if(notesArr.length > 0) invoiceNote += (invoiceNote ? " | " : "") + notesArr.join(", ");
-    const footerMsg = invSettings.footer || (isReminder ? "Please pay before due date." : "Thank you for your payment!");
-
+    // --- RETURN FULL HTML ---
+    const displayDate = new Date(paymentDate).toLocaleDateString();
     return `
     <div id="invoiceCapture" class="invoice-thermal">
         <div class="therm-header">
-            <img src="logo.png" class="therm-logo" alt="Logo"><br> <div class="therm-title">N'RTECH INTERNET</div>
+            <img src="logo.png" class="therm-logo" alt="Logo"><br>
+            <div class="therm-title">N'RTECH INTERNET</div>
             <div>San Vicente, Tubod, LDN</div>
             <div>0946-895-3577</div>
         </div>
-
         <div class="therm-info">
             <div class="therm-row"><span>Date:</span> <span>${displayDate}</span></div>
             <div class="therm-row"><span>Ref #:</span> <b>${refNum}</b></div>
-            <div class="therm-divider"></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
-            <div class="therm-row"><span>Plan:</span> <span>${acc.plan.name}</span></div>
-            <div class="therm-row" style="margin-top:5px; font-weight:bold;">
-                <span>Billing Month:</span> <span>${billingMonthDisplay}</span>
-            </div>
         </div>
         
-        <div class="therm-points-box">
-            <div style="display:flex; justify-content:space-around; font-size:11px; font-weight:700;">
-                <span>Adv: ${pAdv}</span>
-                <span>On-Time: ${pTime}</span>
-                <span>Lost: ${pLost}</span>
-            </div>
-        </div>
-
-        <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">
-            ${isReminder ? 'BILLING STATEMENT' : 'OFFICIAL RECEIPT'}
-        </div>
-
-        <div class="therm-row">
-            <span>${billingDesc}</span>
-            <span>₱${baseAmount.toFixed(2)}</span>
-        </div>
-
-        ${extraItemsHtml}
-
-        ${middleRowHtml}
-
-        <div class="therm-divider"></div>
-
-        <div class="therm-row" style="font-size: 15px; font-weight: 800; margin-top:5px;">
-            <span>${finalRowLabel}</span>
-            <span style="color:${finalColor}">
-                ${finalValue < 0 ? '-' : ''}₱${Math.abs(finalValue).toFixed(2)}
-            </span>
-        </div>
-        
-        ${invoiceNote ? `<div style="margin-top:8px; font-size:11px; text-align:center; font-style:italic;">Note: ${invoiceNote}</div>` : ''}
+        ${htmlBody}
 
         <div style="margin-top: 15px; border-top: 2px dashed #000; padding-top: 10px; text-align: center;">
             <div style="font-weight: 800; margin-bottom: 5px;">PAY VIA GCASH</div>
@@ -4478,11 +4360,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">0931-792-6807</div>
             <div style="font-size: 10px;">NO***L JO*N R.</div>
         </div>
-
-        <div class="therm-footer">
-            <br>
-            <i>${footerMsg}</i>
-        </div>
+        <div class="therm-footer"><br><i>Thank you!</i></div>
     </div>
     `;
 }
@@ -6151,3 +6029,5 @@ setInterval(async () => {
 </script>
 </body>
 </html>
+ 
+
