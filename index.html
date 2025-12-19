@@ -4349,37 +4349,28 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 }
 
 /* ============================================================
-   UPDATED INVOICE GENERATOR (With Loyalty, Coverage, Warnings & Validity)
+   UPDATED INVOICE GENERATOR (With Custom Calculation Flow)
    ============================================================ */
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
     // 1. SETUP DATA
     let targetPayment = null;
+    // Determine which payment to show
     if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
         targetPayment = acc.payments[specificPaymentIndex];
     } else if (!isReminder && acc.payments.length > 0) {
         targetPayment = acc.payments[acc.payments.length - 1];
     }
 
+    // Basic Variables
     let paymentAmount = targetPayment ? Number(targetPayment.amount) : 0;
     let paymentDate = targetPayment ? targetPayment.date : new Date().toISOString().slice(0,10);
     let refNum = targetPayment ? (targetPayment.referenceNumber || "REF-000") : "REMINDER";
     
     const planFee = acc.plan.fee;
     const planName = acc.plan.name;
-    
-    // --- FEATURE 2: Calculate Covered Months ---
-    // If it's a reminder, we base coverage on the Next Due Date
-    // If it's a receipt, we base it on the Payment Date
-    let coverageText = "N/A";
-    if (isReminder) {
-        coverageText = calculateMonthsCovered(acc.nextDue, planFee, planFee); // Usually covers the upcoming month
-    } else {
-        // For receipts, calculate based on amount paid
-        coverageText = calculateMonthsCovered(paymentDate, paymentAmount, planFee);
-    }
-    
-    // --- CALCULATE EXTRAS (Charges/Discounts for this Month) ---
     const billingMonthFilter = paymentDate.slice(0, 7); 
+
+    // 2. CALCULATE EXTRAS (Charges, Penalties, Discounts)
     let itemCharges = 0;
     let penalties = 0;
     let reconnection = 0;
@@ -4406,22 +4397,29 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         });
     }
 
-    // --- FORMULA IMPLEMENTATION ---
-
+    // 3. CALCULATION LOGIC
     let htmlBody = '';
-    let finalLabel = '';
-    let finalValue = 0;
-    let finalColor = 'black';
     let warningNote = '';
 
+    // --- A. REMINDER LOGIC ---
     if (isReminder) {
-        // --- REMINDER LOGIC ---
+        // Formula: Subtotal + (Previous Excess/Lacking) = Total Amount to Pay
+        // Note: In code, acc.excessLackingBalance > 0 is Excess, < 0 is Lacking.
+        // To "Add Lacking" (increase bill) we subtract the negative balance.
+        // To "Deduct Excess" (decrease bill) we subtract the positive balance.
+        
         let subTotal = planFee + itemCharges + penalties + reconnection - discounts;
-        let excessBalance = acc.excessLackingBalance;
-        let totalToPay = subTotal - excessBalance;
-        if(totalToPay < 0) totalToPay = 0;
+        
+        // "Previous Balance" here is simply the current state of the account
+        let previousBalance = acc.excessLackingBalance; 
+        
+        let totalToPay = subTotal - previousBalance; 
+        if(totalToPay < 0) totalToPay = 0; // Cannot pay negative
 
-        // FEATURE 3: Reminder Warning
+        // Label Logic
+        let balanceLabel = previousBalance >= 0 ? "LESS: PREV. EXCESS" : "ADD: PREV. LACKING";
+        let balanceDisplay = Math.abs(previousBalance).toFixed(2);
+
         warningNote = `
             <div style="margin-top:10px; border:1px solid red; padding:5px; font-size:10px; text-align:center; font-weight:bold; color:red;">
                 WARNING: Please pay on or before the due date to avoid automatic disconnection and 10% penalty fees.
@@ -4438,48 +4436,74 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <div class="therm-row" style="font-weight:700;"><span>SUBTOTAL</span><span>${subTotal.toFixed(2)}</span></div>
             
             <div class="therm-row" style="color: var(--accent-2);">
-                <span>LESS: EXCESS BALANCE</span>
-                <span>-${excessBalance.toFixed(2)}</span>
+                <span>${balanceLabel}</span>
+                <span>${previousBalance >= 0 ? '-' : '+'}${balanceDisplay}</span>
             </div>
             
             <div class="therm-divider"></div>
             <div class="therm-row" style="font-size:16px; font-weight:800;">
-                <span>TOTAL TO BE PAID</span>
+                <span>TOTAL TO PAY</span>
                 <span>₱${totalToPay.toFixed(2)}</span>
             </div>
         `;
 
     } else {
-        // --- RECEIPT LOGIC ---
-        let monthsPaid = Math.floor(paymentAmount / planFee);
-        if(monthsPaid < 1) monthsPaid = 1;
-
-        let baseAmount = planFee * monthsPaid;
-        let planDesc = monthsPaid > 1 ? `${planName} x ${monthsPaid} Months` : planName;
-        let subTotal = baseAmount + itemCharges + penalties + reconnection - discounts;
-        let mathResult = subTotal - paymentAmount;
+        // --- B. RECEIPT LOGIC (Standard & Advance) ---
         
-        if (mathResult < 0) {
-            finalLabel = "EXCESS (WALLET)";
-            finalValue = Math.abs(mathResult);
+        // 1. Determine Multiplier (For Advance Payers)
+        let monthsPaid = Math.floor(paymentAmount / planFee);
+        if(monthsPaid < 1) monthsPaid = 1; // Default to 1 month base
+        
+        // 2. Base Calculation
+        let basePlanCost = planFee * monthsPaid;
+        let planDesc = monthsPaid > 1 ? `${planName} x ${monthsPaid} Months` : planName;
+        
+        // 3. Subtotal
+        let subTotal = basePlanCost + itemCharges + penalties + reconnection - discounts;
+
+        // 4. Reverse Calculate "Previous Balance" 
+        // Logic: CurrentBalance = (PreviousBalance + Payment) - Subtotal
+        // Therefore: PreviousBalance = CurrentBalance - Payment + Subtotal
+        let currentBalance = acc.excessLackingBalance;
+        let previousBalance = (currentBalance - paymentAmount) + subTotal; 
+        // Note: This math ensures the invoice numbers add up perfectly on paper.
+
+        // 5. Determine Labels
+        // Logic: previousBalance > 0 is Wallet (Excess), < 0 is Debt (Lacking)
+        let prevBalLabel = previousBalance >= 0 ? "LESS: PREV. EXCESS" : "ADD: PREV. LACKING";
+        let prevBalValue = Math.abs(previousBalance);
+        let prevBalSign = previousBalance >= 0 ? "-" : "+";
+
+        // 6. Final Result Formatting (Current Excess/Lacking)
+        let finalLabel = "";
+        let finalValueString = "";
+        let finalColor = "black";
+
+        if (currentBalance >= 0) {
+            // EXCESS (Positive) -> "if excess make it positive no sign"
+            finalLabel = "CURRENT EXCESS";
+            finalValueString = currentBalance.toFixed(2); 
             finalColor = "var(--accent-2)";
-        } else if (mathResult > 0) {
-            finalLabel = "LACKING (BALANCE)";
-            finalValue = mathResult;
-            finalColor = "red";
         } else {
-            finalLabel = "BALANCE";
-            finalValue = 0;
+            // LACKING (Negative) -> "if lacking is -"
+            finalLabel = "CURRENT LACKING";
+            finalValueString = currentBalance.toFixed(2); // The number is already negative (e.g. -500.00)
+            finalColor = "red";
         }
 
         htmlBody = `
             <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000;">OFFICIAL RECEIPT</div>
 
-            <div class="therm-row"><span>${planDesc}</span><span>${baseAmount.toFixed(2)}</span></div>
+            <div class="therm-row"><span>${planDesc}</span><span>${basePlanCost.toFixed(2)}</span></div>
             ${extraRowsHtml}
 
             <div class="therm-divider"></div>
             <div class="therm-row" style="font-weight:700;"><span>SUBTOTAL</span><span>${subTotal.toFixed(2)}</span></div>
+            
+            <div class="therm-row">
+                <span>${prevBalLabel}</span>
+                <span>${prevBalSign}${prevBalValue.toFixed(2)}</span>
+            </div>
             
             <div class="therm-row">
                 <span>LESS: AMOUNT PAID</span>
@@ -4489,12 +4513,14 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <div class="therm-divider"></div>
             <div class="therm-row" style="font-size:16px; font-weight:800;">
                 <span>${finalLabel}</span>
-                <span style="color:${finalColor}">₱${finalValue.toFixed(2)}</span>
+                <span style="color:${finalColor}">${finalValueString}</span>
             </div>
         `;
     }
 
-    // --- FEATURE 1: Loyalty Points on Invoice ---
+    // 4. COMMON ELEMENTS (Footer, Points, etc)
+    const coverageText = calculateMonthsCovered(paymentDate, paymentAmount, planFee);
+    
     const pointsHtml = `
         <div style="margin: 10px 0; border: 1px dashed #000; padding: 5px; font-size: 10px; text-align: center;">
             <div style="font-weight:700; margin-bottom:2px;">LOYALTY POINTS</div>
@@ -4504,7 +4530,6 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         </div>
     `;
 
-    // --- FEATURE 4: Validity Note ---
     const validityNote = `
         <div style="margin-top:10px; font-size:9px; text-align:center; font-style:italic; color:#444;">
             NOTE: This receipt confirms your payment is recorded valid. 
@@ -4528,12 +4553,14 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             <div class="therm-row"><span>Ref #:</span> <b>${refNum}</b></div>
             <div class="therm-row"><span>Account:</span> <span>${acc.accountNumber}</span></div>
             <div class="therm-row"><span>Name:</span> <span>${acc.name}</span></div>
-            <div class="therm-row"><span>Coverage:</span> <span style="font-weight:700;">${coverageText}</span></div>
+            ${!isReminder ? `<div class="therm-row"><span>Coverage:</span> <span style="font-weight:700;">${coverageText}</span></div>` : ''}
         </div>
         
         ${htmlBody}
         
-        ${pointsHtml} ${warningNote} <div style="margin-top: 15px; border-top: 2px dashed #000; padding-top: 10px; text-align: center;">
+        ${pointsHtml} ${warningNote} 
+        
+        <div style="margin-top: 15px; border-top: 2px dashed #000; padding-top: 10px; text-align: center;">
             <div style="font-weight: 800; margin-bottom: 5px;">PAY VIA GCASH</div>
             <img src="gcash-qr.png" style="width: 100px; height: 100px; border: 2px solid #000;">
             <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">0931-792-6807</div>
