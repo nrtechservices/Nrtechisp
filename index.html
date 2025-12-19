@@ -2968,6 +2968,7 @@ function renderAccounts() {
 
     renderPaymentAnalysis();
     renderClientTally(clientTally);
+    renderDashboardWidgets(); 
 }
 
 
@@ -5931,37 +5932,46 @@ function downloadTransactionPng(accIdx, payIdx) {
 
 
 function renderDashboardWidgets() {
-    // 1. Total Clients
+    // 1. Total Active Clients
     const activeCount = accounts.filter(a => a.status === 'Active').length;
     document.getElementById('widgetTotalClients').textContent = activeCount;
 
-    // 2. Estimated Revenue (Sum of all Active Plans)
+    // 2. Estimated Monthly Revenue (Sum of all Active Plans)
     const estRev = accounts.reduce((sum, a) => {
         return a.status === 'Active' ? sum + (a.plan.fee || 0) : sum;
     }, 0);
-    document.getElementById('widgetRevenue').textContent = `₱${estRev.toLocaleString()}`;
+    document.getElementById('widgetRevenue').textContent = `₱${estRev.toLocaleString(undefined, {minimumFractionDigits: 2})}`;
 
-    // 3. Collections This Month
-    const currentMonthStr = new Date().toISOString().slice(0, 7); // YYYY-MM
+    // 3. Collections This Month (Real-Time Cash In)
+    // FIX: Use Local Date to ensure PH Time works correctly vs UTC
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0'); // Ensures '01' to '12'
+    const currentMonthStr = `${year}-${month}`; // Result: "2023-12"
+
     let monthlyCollection = 0;
+    
     accounts.forEach(acc => {
-        acc.payments.forEach(p => {
-            if (p.date.startsWith(currentMonthStr)) {
-                monthlyCollection += Number(p.amount);
-            }
-        });
+        if (acc.payments) {
+            acc.payments.forEach(p => {
+                // p.date is stored as YYYY-MM-DD
+                if (p.date && p.date.startsWith(currentMonthStr)) {
+                    monthlyCollection += Number(p.amount);
+                }
+            });
+        }
     });
-    document.getElementById('widgetCollection').textContent = `₱${monthlyCollection.toLocaleString()}`;
+    
+    document.getElementById('widgetCollection').textContent = `₱${monthlyCollection.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
 
-    // --- RENDER POINTS LEADERBOARD ---
+    // --- RENDER POINTS LEADERBOARD (Kept logic same) ---
     const leaderboardList = document.getElementById('leaderboardList');
     leaderboardList.innerHTML = '';
 
-    // Calculate total points and sort
     const rankedAccounts = accounts.map(a => {
         const totalPts = (a.points.advance || 0) + (a.points.ontime || 0) - (a.points.lost || 0);
         return { ...a, totalPts };
-    }).sort((a, b) => b.totalPts - a.totalPts).slice(0, 10); // Top 10
+    }).sort((a, b) => b.totalPts - a.totalPts).slice(0, 10);
 
     rankedAccounts.forEach((acc, index) => {
         let rankClass = 'rank-other';
@@ -5985,6 +5995,7 @@ function renderDashboardWidgets() {
         leaderboardList.appendChild(item);
     });
 }
+
 function init(){
   // ... existing code ...
   
@@ -6233,6 +6244,9 @@ setInterval(async () => {
     chartNet.update();
 
 }, 1000);
+
+
+
 
 </script>
 </body>
