@@ -1599,21 +1599,17 @@
             <button id="btnExportPayments" class="no-print small ghost" style="font-size: 11px;">📂 Export CSV</button>
         </div>
 
-        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
-    <button id="btnAddPayment" class="no-print small" style="background: var(--accent); color: white;">
-        💲 Add Payment
-    </button>
-    <button id="btnAddCharge" class="no-print small ghost" style="color:var(--toast-error); border-color:var(--toast-error); text-align:center;">
-        ➕ Charge
-    </button>
-    <button id="btnAddDiscount" class="no-print small ghost" style="color:var(--toast-success); border-color:var(--toast-success); text-align:center;">
-        ➖ Discount
-    </button>
-    <button id="btnCashout" class="no-print small ghost" style="color:var(--text); border-color:var(--text); text-align:center; background: #fff8e1;">
-        💸 Cashout
-    </button>
-</div>
-
+        <div style="display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 8px; margin-bottom: 8px;">
+            <button id="btnAddPayment" class="no-print small" style="background: var(--accent); color: white;">
+                💲 Add Payment
+            </button>
+            <button id="btnAddCharge" class="no-print small ghost" style="color:var(--toast-error); border-color:var(--toast-error); text-align:center;">
+                ➕ Charge
+            </button>
+            <button id="btnAddDiscount" class="no-print small ghost" style="color:var(--toast-success); border-color:var(--toast-success); text-align:center;">
+                ➖ Discount
+            </button>
+        </div>
 
         <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;">
             <button id="btnPrintInvoice" class="no-print small ghost" style="white-space: nowrap;">
@@ -2218,34 +2214,6 @@
   <div id="agreementContent"></div>
 </div>
 
-<div class="modal-backdrop" id="modalCashoutBackdrop">
-  <div class="modal" style="width: min(95%, 400px);">
-    <div style="display:flex;justify-content:space-between;align-items:center">
-      <h3 style="color: var(--accent-2);">💸 Cashout Excess Balance</h3>
-      <button id="closeCashout" class="no-print ghost small">Close</button>
-    </div>
-    <div style="margin-top:8px">
-      <div class="card" style="background: #fff8e1; border: 1px dashed var(--accent); padding: 10px; margin-top: 0; margin-bottom: 15px;">
-          <div class="flex-between">
-              <span class="muted">Available Excess:</span>
-              <strong id="cashoutMaxAmount" style="font-size: 16px; color: var(--accent-2);">₱0.00</strong>
-          </div>
-      </div>
-
-      <p class="muted" style="font-size:12px">Withdraw funds from the client's excess wallet. This will reduce their balance.</p>
-      
-      <label class="muted">Reason / Note</label>
-      <input id="cashoutNote" placeholder="e.g. Refund, Client Request, Transfer" />
-      
-      <label style="margin-top:8px" class="muted">Amount to Cashout</label>
-      <input id="cashoutAmount" type="number" step="0.01" />
-      
-      <div style="text-align:right;margin-top:16px">
-          <button id="btnSaveCashout" style="background: var(--text);">Confirm Cashout</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script>
@@ -3028,16 +2996,14 @@ function recomputePointsAndBalance(acc){
   if(acc.charges) acc.charges.forEach(c => totalDebts += Number(c.amount));
   if(acc.discounts) acc.discounts.forEach(d => totalDebts -= Number(d.amount));
 
-  // 2. Calculate Total Cashouts (NEW LOGIC)
-  let totalCashouts = 0;
-  if(acc.cashouts) acc.cashouts.forEach(c => totalCashouts += Number(c.amount));
-
-  // 3. Calculate Total Cash Paid & Points Logic
+  // 2. Calculate Total Cash Paid & Points Logic (UPDATED)
   let totalPaid = 0;
   
   // We use a "Running Wallet" to handle partial payments + excess
   let runningWallet = 0; 
 
+  // Sort payments by date to ensure the history flows correctly
+  // (Oldest payment first)
   const sortedPayments = [...acc.payments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
   sortedPayments.forEach(p => {
@@ -3047,72 +3013,87 @@ function recomputePointsAndBalance(acc){
       
       const d = new Date(p.date + 'T00:00:00').getDate();
 
+      // LOGIC CHANGE: 
+      // While the wallet has enough money to pay for a full monthly plan...
+      // This handles:
+      // A. Partial payments summing up (e.g., 100 excess + 400 new = 500 Paid)
+      // B. Advance payments (e.g., 1000 paid = 2 loops of 500)
+      
       while(runningWallet >= acc.plan.fee) {
+          // Deduct the cost of 1 month
           runningWallet -= acc.plan.fee;
 
+          // Award Point based on the date of the payment that completed the sum
           if(d <= 19) {
               acc.points.advance++;
           } else if(d === 20) {
               acc.points.ontime++;
           } else if(d >= 21 && d <= 25) {
               acc.points.lost++; 
+              // Note: This counts as a "Paid" month, but marks it as a "Lost Point" (Late)
           }
       }
   });
 
-  // 4. Calculate Balance based on "Running Bill"
-  // Formula: (Total Cash Paid) - (Total Debts) - (Total Cashouts) - (Plan Fee * Months Paid)
+  // 3. Calculate Balance based on "Running Bill"
+  // Total Cash - Total Debts - (Plan * Months_Covered_By_Cash)
   
-  // First, figure out net available cash before plan deduction
-  let netCash = totalPaid - totalDebts - totalCashouts; // <--- MODIFIED HERE
-  
-  // How many months are fully covered by this net cash?
+  let netCash = totalPaid - totalDebts;
   let monthsFullyPaid = Math.floor(netCash / acc.plan.fee);
   
-  // The balance is the remainder.
+  // The balance is the remainder. 
+  // Example: Paid 1000. Plan 499. 1000 / 499 = 2 months. Remainder = 2.
   let remainder = netCash % acc.plan.fee;
   
-  // Handle Negative Balance Logic
+  // If netCash is negative (Lacking), the remainder logic works differently
   if (netCash < 0) {
-      acc.excessLackingBalance = netCash; 
+      acc.excessLackingBalance = netCash; // Shows -500 etc.
   } else {
-      acc.excessLackingBalance = remainder; 
+      acc.excessLackingBalance = remainder; // Shows 2.00
   }
 
-  // Determine Next Due Date
+  // Determine Next Due Date based on coverage
   const billingDay = acc.billingDay || 20;
   const start = new Date(acc.createdAt || new Date());
   
+  // Estimate next due based on months paid
+  let nextDueMonth = new Date(start);
+  nextDueMonth.setMonth(start.getMonth() + monthsFullyPaid);
+  nextDueMonth.setDate(billingDay);
+  
+  // If we have payments, update next due accurately based on the last transaction date + coverage
   if(sortedPayments.length > 0) {
       const lastPay = sortedPayments[sortedPayments.length-1];
       const pDate = new Date(lastPay.date);
       
-      // Basic Next Due Logic based on if they have excess coverage
-      if (monthsFullyPaid > 0 && remainder >= 0) {
-           // If they have paid enough for future months, project the date forward
-           // We use the last payment date as a base, but add months based on coverage relative to now
-           // Simplified logic: Current Month + Covered Months? 
-           // For stability: Keep standard calculation unless explicitly advanced.
+      // Calculate how many months the total net cash covers
+      // If user paid for 5 months total since start, next due is 5 months from start (simplified)
+      // Or simply:
+      
+      const now = new Date();
+      // If coverage is in future
+      if (monthsFullyPaid > 0) {
+           // Logic: Next due is simply the billing day of the month AFTER the covered period
+           // This is complex to perfect without a full billing engine, but for this display:
+           const futureDate = new Date();
+           // We approximate: Current Date + (Balance / Fee) worth of time? 
+           // Better: Use the billing cycle logic provided in previous steps.
            
-           // Simple Next Due:
-           const today = new Date();
-           let targetMonth = today.getMonth();
-           let targetYear = today.getFullYear();
-           
-           // If paid up, move to next month
-           if(acc.excessLackingBalance < acc.plan.fee && acc.excessLackingBalance >= 0) {
-               // Normal state
-               acc.nextDue = computeNextDue(lastPay.date, billingDay);
+           // Reuse existing working logic for Next Due:
+           if(Number(lastPay.amount) > acc.plan.fee) {
+              const covered = Math.floor(Number(lastPay.amount)/acc.plan.fee);
+              pDate.setMonth(pDate.getMonth() + covered);
            } else {
-               // Advanced state handled by existing computeNextDue logic generally
-               acc.nextDue = computeNextDue(lastPay.date, billingDay);
+              pDate.setMonth(pDate.getMonth() + 1);
            }
+           pDate.setDate(billingDay);
+           acc.nextDue = pDate.toISOString().slice(0,10);
       } else {
-          acc.nextDue = computeNextDue(lastPay.date, billingDay);
+          // Default logic
+           acc.nextDue = computeNextDue(lastPay.date, billingDay);
       }
   }
 }
-
 
 
 
@@ -3343,20 +3324,6 @@ function openAccount(idx){
           });
       });
   }
-  
-   // --- NEW: Add Cashouts ---
-  if(a.cashouts) {
-      a.cashouts.forEach((c, i) => {
-          allTransactions.push({ 
-              type: 'cashout', 
-              date: c.date, 
-              amount: c.amount, 
-              note: c.note || 'Cashout', 
-              ref: 'REFUND', 
-              originalIndex: i 
-          });
-      });
-  }
 
   // 2. Sort by Date (Newest first)
   allTransactions.sort((x, y) => new Date(y.date) - new Date(x.date));
@@ -3364,54 +3331,55 @@ function openAccount(idx){
    // 3. Render the Unified Table
   allTransactions.forEach((t) => {
       
+    // --- FIX START: Define rowClass based on type ---
     let rowClass = '';
-    // Styling logic
     if (t.type === 'payment' || t.type === 'discount') {
-        rowClass = 'txn-positive'; 
-    } else if (t.type === 'cashout') {
-        rowClass = ''; // Neutral or custom
+        rowClass = 'txn-positive'; // Green style defined in CSS
     } else {
-        rowClass = 'txn-negative'; 
+        rowClass = 'txn-negative'; // Red style defined in CSS
     }
+    // --- FIX END ---
 
     const tr = document.createElement('tr');
     tr.className = 'txn-row ' + rowClass;
-    
-    // Style specific for cashout text
-    let typeLabel = t.type.charAt(0).toUpperCase() + t.type.slice(1);
-    let typeColor = t.type === 'charge' ? 'text-danger' : (t.type === 'cashout' ? 'var(--text)' : 'text-success');
-    let displayAmount = t.type === 'cashout' ? `-₱${Number(t.amount).toFixed(2)}` : `₱${Number(t.amount).toFixed(2)}`;
-    
-    if(t.type === 'cashout') {
-        tr.style.background = '#fff8e1'; // Light yellow background for cashout
-        tr.style.borderLeft = '5px solid #333';
-    }
 
+    // FEATURE 2: CLICK TO PRINT SPECIFIC RECEIPT
+    // We only allow clicking if it's a payment type
     if (t.type === 'payment') {
         tr.style.cursor = 'pointer';
         tr.title = "Click to view receipt";
-        tr.onclick = () => { createAndPrintInvoice(false, t.originalIndex); };
+        tr.onclick = () => { 
+            // We pass false (not reminder) and the original index of this payment
+            createAndPrintInvoice(false, t.originalIndex); 
+        };
     }
 
-    tr.innerHTML = `
+        tr.innerHTML = `
         <td>${new Date(t.date).toLocaleDateString()}</td>
-        <td>${t.ref || ''}</td> 
-        <td class="${typeColor}" style="font-weight:700">${typeLabel}</td>
+        <td>${t.ref || ''}</td> <td class="${t.type === 'charge' ? 'text-danger' : 'text-success'}" style="font-weight:700">
+            ${t.type === 'payment' ? 'Payment' : t.type.charAt(0).toUpperCase() + t.type.slice(1)}
+        </td>
         <td>${t.note || ''}</td>
-        <td style="text-align:right">${displayAmount}</td>
+        <td style="text-align:right">₱${Number(t.amount).toFixed(2)}</td>
         <td class="no-print" style="display:flex; gap:5px;">
           ${t.type === 'payment' ? `
           <button class="small ghost" style="color:var(--accent); border-color:var(--accent);" 
-              onclick="event.stopPropagation(); downloadTransactionPng(${activeAccountIndex}, ${t.originalIndex})">⬇️</button>
+              title="Download PNG"
+              onclick="event.stopPropagation(); downloadTransactionPng(${activeAccountIndex}, ${t.originalIndex})">
+              ⬇️
+          </button>
           ` : ''}
+          
           <button class="small ghost" style="color:red; border-color:red;" 
-              onclick="event.stopPropagation(); deleteTransaction(${activeAccountIndex}, '${t.type}', ${t.originalIndex})">🗑️</button>
+              title="Delete"
+              onclick="event.stopPropagation(); deleteTransaction(${activeAccountIndex}, '${t.type}', ${t.originalIndex})">
+              🗑️
+          </button>
         </td>
     `;
+
     paymentsTbody.appendChild(tr);
   });
-
-        
 
 
   // init calendar to this month
@@ -5515,29 +5483,37 @@ async function deleteTransaction(accIdx, type, itemIdx) {
     let confirmMsg = '';
 
     if(type === 'payment') confirmMsg = 'Delete this PAYMENT? This will recalculate balances.';
-    if(type === 'charge') confirmMsg = 'Remove this CHARGE? Balance will decrease.';
-    if(type === 'discount') confirmMsg = 'Remove this DISCOUNT? Balance will increase.';
-    if(type === 'cashout') confirmMsg = 'Remove this CASHOUT? Money will be returned to account balance.'; // NEW
+    if(type === 'charge') confirmMsg = 'Remove this CHARGE? Balance will decrease (credit back).';
+    if(type === 'discount') confirmMsg = 'Remove this DISCOUNT? Balance will increase (debt).';
 
     const shouldDelete = await customConfirm(confirmMsg, '⚠️ Delete Record');
     if (!shouldDelete) return;
 
-    if(type === 'payment') acc.payments.splice(itemIdx, 1);
-    else if(type === 'charge') acc.charges.splice(itemIdx, 1);
-    else if(type === 'discount') acc.discounts.splice(itemIdx, 1);
-    else if(type === 'cashout') acc.cashouts.splice(itemIdx, 1); // NEW
+    // Perform Deletion based on type
+    if(type === 'payment') {
+        acc.payments.splice(itemIdx, 1);
+    } 
+    else if(type === 'charge') {
+        acc.charges.splice(itemIdx, 1);
+    } 
+    else if(type === 'discount') {
+        acc.discounts.splice(itemIdx, 1);
+    }
 
+    // Recalculate everything
     recomputePointsAndBalance(acc);
     
+    // Update Next Due Date based on remaining payments
     const lastPayDate = acc.payments.length > 0 ? acc.payments[acc.payments.length-1].date : null;
     acc.nextDue = computeNextDue(lastPayDate, acc.billingDay);
     
     saveAccounts();
     showToast(`${type.toUpperCase()} deleted successfully.`, 'success');
+    
+    // Refresh UI
     renderAccounts();
     if(activeAccountIndex === accIdx) openAccount(accIdx);
 }
-
 
 /* =========================================
    NEW: BACKUP & RECOVER (nrtechfile.csv)
@@ -6270,56 +6246,6 @@ setInterval(async () => {
 }, 1000);
 
 
-// --- CASHOUT LOGIC ---
-document.getElementById('btnCashout').onclick = () => {
-    if(activeAccountIndex === null) return;
-    const acc = accounts[activeAccountIndex];
-    
-    // Check if they have positive balance
-    if(acc.excessLackingBalance <= 0) {
-        showToast('Account has no excess balance to cash out.', 'error');
-        return;
-    }
-
-    document.getElementById('cashoutMaxAmount').textContent = `₱${acc.excessLackingBalance.toFixed(2)}`;
-    document.getElementById('cashoutAmount').value = acc.excessLackingBalance.toFixed(2); // Default to max
-    document.getElementById('cashoutAmount').max = acc.excessLackingBalance;
-    document.getElementById('cashoutNote').value = '';
-    
-    document.getElementById('modalCashoutBackdrop').style.display = 'flex';
-};
-
-document.getElementById('closeCashout').onclick = () => {
-    document.getElementById('modalCashoutBackdrop').style.display = 'none';
-};
-
-document.getElementById('btnSaveCashout').onclick = () => {
-    if(activeAccountIndex === null) return;
-    const acc = accounts[activeAccountIndex];
-    
-    const amount = Number(document.getElementById('cashoutAmount').value);
-    const note = document.getElementById('cashoutNote').value;
-
-    if(amount <= 0) return showToast('Invalid amount.', 'error');
-    if(amount > acc.excessLackingBalance) return showToast('Cannot cash out more than available balance.', 'error');
-    if(!note) return showToast('Please enter a reason/note.', 'error');
-
-    if(!acc.cashouts) acc.cashouts = [];
-    
-    acc.cashouts.push({
-        date: new Date().toISOString().slice(0,10),
-        amount: amount,
-        note: note
-    });
-
-    recomputePointsAndBalance(acc);
-    saveAccounts();
-    
-    document.getElementById('modalCashoutBackdrop').style.display = 'none';
-    showToast('Cashout successful. Balance updated.', 'success');
-    openAccount(activeAccountIndex);
-    renderAccounts();
-};
 
 
 </script>
@@ -6327,4 +6253,4 @@ document.getElementById('btnSaveCashout').onclick = () => {
 </html>
  
 
-   
+    
