@@ -909,18 +909,18 @@
 
 /* --- COPY THIS INTO YOUR <style> TAG --- */
 
-/* Thermal Printer Specific Styling */
+/* Thermal Printer Specific Styling (58mm) */
 .invoice-thermal {
-    width: 78mm; /* Standard thermal paper width */
-    max-width: 78mm;
+    width: 58mm; /* Changed to 58mm */
+    max-width: 58mm;
     background: #fff;
-    font-family: 'Courier New', Courier, monospace; /* Monospace aligns better on receipts */
+    font-family: 'Courier New', Courier, monospace;
     color: #000;
-    padding: 10px 5px;
+    padding: 5px 2px; /* Reduced padding */
     margin: 0 auto;
-    font-size: 12px;
-    line-height: 1.2;
-    border: 1px solid #ddd; /* Visual border for screen, removed in print */
+    font-size: 10px; /* Reduced font size to fit */
+    line-height: 1.1;
+    border: 1px solid #ddd;
 }
 
 .therm-header {
@@ -978,12 +978,12 @@
 @media print {
     @page {
         margin: 0;
-        size: 80mm auto; /* Critical for thermal printers */
+        size: 58mm auto; /* Changed to 58mm */
     }
     body { 
         margin: 0; 
         padding: 0;
-        visibility: hidden; /* Hide everything else */
+        visibility: hidden;
     }
     .invoice-thermal, .invoice-thermal * {
         visibility: visible;
@@ -992,10 +992,10 @@
         position: absolute;
         left: 0;
         top: 0;
-        width: 78mm;
+        width: 58mm; /* Changed to 58mm */
         border: none;
+        padding: 0;
     }
-    /* Hide the non-thermal invoice if it exists */
     .invoice-clean { display: none; } 
 }
 
@@ -2993,105 +2993,81 @@ function recomputePointsAndBalance(acc){
   
   // 1. Calculate Total Debts (Charges - Discounts)
   let totalDebts = 0;
-  if(acc.charges) acc.charges.forEach(c => totalDebts += Number(c.amount));
-  if(acc.discounts) acc.discounts.forEach(d => totalDebts -= Number(d.amount));
+  if(acc.charges) {
+      acc.charges.forEach(c => totalDebts += parseFloat(c.amount || 0));
+  }
+  if(acc.discounts) {
+      acc.discounts.forEach(d => totalDebts -= parseFloat(d.amount || 0));
+  }
 
-  // 2. Calculate Total Cash Paid & Points Logic (UPDATED)
+  // 2. Calculate Total Cash Paid & Points Logic
   let totalPaid = 0;
-  
-  // We use a "Running Wallet" to handle partial payments + excess
   let runningWallet = 0; 
 
-  // Sort payments by date to ensure the history flows correctly
-  // (Oldest payment first)
+  // Sort payments by date
   const sortedPayments = [...acc.payments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
+  const planFee = parseFloat(acc.plan.fee);
+
   sortedPayments.forEach(p => {
-      const amt = Number(p.amount);
+      const amt = parseFloat(p.amount || 0);
       totalPaid += amt;
       runningWallet += amt;
       
       const d = new Date(p.date + 'T00:00:00').getDate();
 
-      // LOGIC CHANGE: 
-      // While the wallet has enough money to pay for a full monthly plan...
-      // This handles:
-      // A. Partial payments summing up (e.g., 100 excess + 400 new = 500 Paid)
-      // B. Advance payments (e.g., 1000 paid = 2 loops of 500)
-      
-      while(runningWallet >= acc.plan.fee) {
-          // Deduct the cost of 1 month
-          runningWallet -= acc.plan.fee;
+      // Fix: Ensure runningWallet is treated as a float with 2 decimal precision for comparison
+      // to avoid infinite loops or missing amounts due to 0.0000001 differences
+      while(parseFloat(runningWallet.toFixed(2)) >= planFee) {
+          runningWallet -= planFee;
 
-          // Award Point based on the date of the payment that completed the sum
+          // Award Point
           if(d <= 19) {
               acc.points.advance++;
           } else if(d === 20) {
               acc.points.ontime++;
           } else if(d >= 21 && d <= 25) {
               acc.points.lost++; 
-              // Note: This counts as a "Paid" month, but marks it as a "Lost Point" (Late)
           }
       }
   });
 
-  // 3. Calculate Balance based on "Running Bill"
-  // Total Cash - Total Debts - (Plan * Months_Covered_By_Cash)
-  
+  // 3. Calculate Balance
+  // Fix: Use Math.round to handle floating point errors for currency
   let netCash = totalPaid - totalDebts;
-  let monthsFullyPaid = Math.floor(netCash / acc.plan.fee);
+  let monthsFullyPaid = Math.floor(netCash / planFee);
   
-  // The balance is the remainder. 
-  // Example: Paid 1000. Plan 499. 1000 / 499 = 2 months. Remainder = 2.
-  let remainder = netCash % acc.plan.fee;
+  // Calculate Remainder safely
+  let rawRemainder = netCash % planFee;
   
-  // If netCash is negative (Lacking), the remainder logic works differently
+  // Fix: Handle JavaScript negative modulo bug and precision
   if (netCash < 0) {
-      acc.excessLackingBalance = netCash; // Shows -500 etc.
+      // If negative, the whole amount is the balance
+      acc.excessLackingBalance = parseFloat(netCash.toFixed(2)); 
   } else {
-      acc.excessLackingBalance = remainder; // Shows 2.00
+      // If positive, force 2 decimal places
+      acc.excessLackingBalance = parseFloat(rawRemainder.toFixed(2)); 
   }
 
-  // Determine Next Due Date based on coverage
+  // Determine Next Due Date logic (Keep existing logic)
   const billingDay = acc.billingDay || 20;
-  const start = new Date(acc.createdAt || new Date());
   
-  // Estimate next due based on months paid
-  let nextDueMonth = new Date(start);
-  nextDueMonth.setMonth(start.getMonth() + monthsFullyPaid);
-  nextDueMonth.setDate(billingDay);
-  
-  // If we have payments, update next due accurately based on the last transaction date + coverage
   if(sortedPayments.length > 0) {
       const lastPay = sortedPayments[sortedPayments.length-1];
       const pDate = new Date(lastPay.date);
       
-      // Calculate how many months the total net cash covers
-      // If user paid for 5 months total since start, next due is 5 months from start (simplified)
-      // Or simply:
-      
-      const now = new Date();
-      // If coverage is in future
-      if (monthsFullyPaid > 0) {
-           // Logic: Next due is simply the billing day of the month AFTER the covered period
-           // This is complex to perfect without a full billing engine, but for this display:
-           const futureDate = new Date();
-           // We approximate: Current Date + (Balance / Fee) worth of time? 
-           // Better: Use the billing cycle logic provided in previous steps.
-           
-           // Reuse existing working logic for Next Due:
-           if(Number(lastPay.amount) > acc.plan.fee) {
-              const covered = Math.floor(Number(lastPay.amount)/acc.plan.fee);
-              pDate.setMonth(pDate.getMonth() + covered);
-           } else {
-              pDate.setMonth(pDate.getMonth() + 1);
-           }
-           pDate.setDate(billingDay);
-           acc.nextDue = pDate.toISOString().slice(0,10);
+      if(parseFloat(lastPay.amount) >= planFee) {
+         // If last payment was a full month, push date
+         const covered = Math.floor(parseFloat(lastPay.amount)/planFee);
+         pDate.setMonth(pDate.getMonth() + covered);
       } else {
-          // Default logic
-           acc.nextDue = computeNextDue(lastPay.date, billingDay);
+         pDate.setMonth(pDate.getMonth() + 1);
       }
+      pDate.setDate(billingDay);
+      acc.nextDue = pDate.toISOString().slice(0,10);
+  } else {
+      // Default fallback
+      acc.nextDue = computeNextDue(null, billingDay);
   }
 }
 
