@@ -972,16 +972,22 @@
     font-size: 11px;
 }
 
-/* Print Media Query - Forces the browser to treat it as a slip */
+
+
+/* Print Media Query - Forces the browser to treat it as a 58mm slip */
 @media print {
     @page {
         margin: 0;
-        size: 58mm auto; /* Changed to 58mm */
+        /* Sets the paper size to 58mm width, auto height */
+        size: 58mm auto; 
     }
     body { 
         margin: 0; 
         padding: 0;
         visibility: hidden;
+        /* Force background colors to print */
+        -webkit-print-color-adjust: exact; 
+        print-color-adjust: exact; 
     }
     .invoice-thermal, .invoice-thermal * {
         visibility: visible;
@@ -990,12 +996,18 @@
         position: absolute;
         left: 0;
         top: 0;
-        width: 58mm; /* Changed to 58mm */
+        /* The specific pixel width you requested */
+        width: 384px; 
+        max-width: 58mm; /* Fallback to physical size */
         border: none;
         padding: 0;
+        /* Ensure content doesn't overflow */
+        overflow: hidden; 
     }
-    .invoice-clean { display: none; } 
+    /* Hide everything else */
+    .invoice-clean, .container, .modal-backdrop { display: none; } 
 }
+
 
 /* --- ADD THIS TO YOUR  SECTION --- */
 
@@ -1613,6 +1625,17 @@
             <button id="btnPrintInvoice" class="no-print small ghost" style="white-space: nowrap;">
                 🖨️ Receipt
             </button>
+            
+            <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;">
+    
+    <button id="btnDirectThermal" class="no-print small" style="background: #333; color: white; white-space: nowrap;">
+        🖨️ Thermal (58mm)
+    </button>
+    <button id="btnPrintInvoice" class="no-print small ghost" style="white-space: nowrap;">
+        🖨️ Receipt
+    </button>
+    </div>
+
             <button id="btnPrintReminderInvoice" class="no-print small ghost" style="white-space: nowrap;">
                 🔔 Reminder
             </button>
@@ -6178,6 +6201,67 @@ setInterval(async () => {
 }, 1000);
 
 
+/* --- PASTE THIS IN YOUR <script> SECTION --- */
+
+document.getElementById('btnDirectThermal').onclick = () => {
+    // 1. Check if account is selected
+    if (activeAccountIndex === null) return showToast('Please select an account first.', 'warning');
+    
+    const acc = accounts[activeAccountIndex];
+    
+    // 2. Generate the Receipt HTML (False = Not a Reminder, Null = Latest Payment)
+    const html = generateInvoiceHtml(acc, false, null);
+
+    // 3. Open a window sized specifically for 384px width
+    // We set height to 600px initially, but it will auto-expand
+    const w = window.open('', '_blank', 'width=384,height=600,toolbar=0,scrollbars=0,status=0');
+    
+    w.document.write(`
+    <html>
+        <head>
+            <title>Thermal Receipt</title>
+            <style>
+                /* Reset margins for the popup window */
+                body { margin: 0; padding: 0; font-family: 'Courier New', monospace; background-color: #fff; }
+                
+                /* Exact styling for the receipt content */
+                .invoice-thermal { 
+                    width: 384px; /* Your requested width */
+                    max-width: 100%;
+                    margin: 0 auto; 
+                    padding: 5px; 
+                    box-sizing: border-box;
+                }
+                
+                /* Re-using your existing styles for consistent look */
+                .therm-header { text-align: center; border-bottom: 2px dashed #000; margin-bottom: 10px; padding-bottom: 10px;}
+                .therm-logo { width: 80px; filter: grayscale(100%); }
+                .therm-title { font-weight: 900; font-size: 18px; text-transform: uppercase; margin-bottom: 5px; }
+                .therm-info { font-size: 12px; font-weight: 600; margin-bottom: 10px; }
+                .therm-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
+                .therm-divider { border-top: 1px dashed #000; margin: 8px 0; }
+                .therm-footer { text-align: center; margin-top: 15px; font-size: 10px; }
+                
+                /* Hide scrollbars for cleaner look */
+                ::-webkit-scrollbar { display: none; }
+            </style>
+        </head>
+        <body>
+            ${html}
+            <script>
+                // Wait for images (logo/qr) to load before printing
+                window.onload = function() { 
+                    setTimeout(function() {
+                        window.print();
+                        // Optional: window.close(); 
+                    }, 500);
+                }
+            <\/script>
+        </body>
+    </html>`);
+    
+    w.document.close();
+};
 
 
 </script>
