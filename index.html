@@ -911,15 +911,16 @@
 
 /* Thermal Printer Specific Styling (58mm) */
 .invoice-thermal {
-    width: 58mm; /* Changed to 58mm */
+    width: 58mm;
     max-width: 58mm;
     background: #fff;
     font-family: 'Courier New', Courier, monospace;
     color: #000;
-    padding: 5px 2px; /* Reduced padding */
+    padding: 5px 2px;
     margin: 0 auto;
-    font-size: 10px; /* Reduced font size to fit */
-    line-height: 1.1;
+    /* CHANGE: Increased base font size from 10px to 13px */
+    font-size: 13px; 
+    line-height: 1.2;
     border: 1px solid #ddd;
 }
 
@@ -931,47 +932,44 @@
 }
 
 .therm-logo {
-    width: 100px; /* <--- CHANGED TO 100px (Adjust this number to resize) */
+    width: 100px;
     height: auto;
     filter: grayscale(100%); 
     margin-bottom: 5px;
 }
 
 .therm-title {
-    font-weight: 800; 
-    font-size: 16px; 
+    font-weight: 900; 
+    /* CHANGE: Increased title size */
+    font-size: 18px; 
     text-transform: uppercase;
     margin-bottom: 5px;
 }
 
 .therm-info {
-    font-size: 11px;
+    /* CHANGE: Increased info size */
+    font-size: 13px; 
+    font-weight: 600;
     margin-bottom: 10px;
 }
 
 .therm-row {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 4px;
+    margin-bottom: 6px; /* Added slightly more space */
+    /* CHANGE: Increased row text size */
+    font-size: 13px;
 }
 
 .therm-divider {
     border-top: 1px dashed #000;
-    margin: 8px 0;
-}
-
-.therm-points-box {
-    border: 1px solid #000;
-    padding: 5px;
     margin: 10px 0;
-    text-align: center;
-    font-size: 11px;
 }
 
 .therm-footer {
     text-align: center;
     margin-top: 15px;
-    font-size: 10px;
+    font-size: 11px;
 }
 
 /* Print Media Query - Forces the browser to treat it as a slip */
@@ -4331,14 +4329,12 @@ function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
 function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = null) {
     // 1. SETUP DATA
     let targetPayment = null;
-    // Determine which payment to show
     if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
         targetPayment = acc.payments[specificPaymentIndex];
     } else if (!isReminder && acc.payments.length > 0) {
         targetPayment = acc.payments[acc.payments.length - 1];
     }
 
-    // Basic Variables
     let paymentAmount = targetPayment ? Number(targetPayment.amount) : 0;
     let paymentDate = targetPayment ? targetPayment.date : new Date().toISOString().slice(0,10);
     let refNum = targetPayment ? (targetPayment.referenceNumber || "REF-000") : "REMINDER";
@@ -4347,7 +4343,7 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     const planName = acc.plan.name;
     const billingMonthFilter = paymentDate.slice(0, 7); 
 
-    // 2. CALCULATE EXTRAS (Charges, Penalties, Discounts)
+    // 2. CALCULATE EXTRAS
     let itemCharges = 0;
     let penalties = 0;
     let reconnection = 0;
@@ -4361,7 +4357,8 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
                 else if(c.category === 'reconnect') reconnection += Number(c.amount);
                 else itemCharges += Number(c.amount);
                 
-                extraRowsHtml += `<div class="therm-row" style="color:red;"><span>[+] ${c.note}</span><span>${Number(c.amount).toFixed(2)}</span></div>`;
+                // CHANGE: Increased Font Size
+                extraRowsHtml += `<div class="therm-row" style="color:red; font-size:13px;"><span>[+] ${c.note}</span><span>${Number(c.amount).toFixed(2)}</span></div>`;
             }
         });
     }
@@ -4369,7 +4366,8 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         acc.discounts.forEach(d => {
             if(d.date.startsWith(billingMonthFilter)) {
                 discounts += Number(d.amount);
-                extraRowsHtml += `<div class="therm-row" style="color:green;"><span>[-] ${d.note}</span><span>${Number(d.amount).toFixed(2)}</span></div>`;
+                // CHANGE: Increased Font Size
+                extraRowsHtml += `<div class="therm-row" style="color:green; font-size:13px;"><span>[-] ${d.note}</span><span>${Number(d.amount).toFixed(2)}</span></div>`;
             }
         });
     }
@@ -4378,33 +4376,23 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     let htmlBody = '';
     let warningNote = '';
 
-    // --- A. REMINDER LOGIC ---
     if (isReminder) {
-        // Formula: Subtotal + (Previous Excess/Lacking) = Total Amount to Pay
-        // Note: In code, acc.excessLackingBalance > 0 is Excess, < 0 is Lacking.
-        // To "Add Lacking" (increase bill) we subtract the negative balance.
-        // To "Deduct Excess" (decrease bill) we subtract the positive balance.
-        
         let subTotal = planFee + itemCharges + penalties + reconnection - discounts;
-        
-        // "Previous Balance" here is simply the current state of the account
         let previousBalance = acc.excessLackingBalance; 
-        
         let totalToPay = subTotal - previousBalance; 
-        if(totalToPay < 0) totalToPay = 0; // Cannot pay negative
+        if(totalToPay < 0) totalToPay = 0;
 
-        // Label Logic
         let balanceLabel = previousBalance >= 0 ? "LESS: PREV. EXCESS" : "ADD: PREV. LACKING";
         let balanceDisplay = Math.abs(previousBalance).toFixed(2);
 
         warningNote = `
-            <div style="margin-top:10px; border:1px solid red; padding:5px; font-size:10px; text-align:center; font-weight:bold; color:red;">
-                WARNING: Please pay on or before the due date to avoid automatic disconnection and 10% penalty fees.
+            <div style="margin-top:10px; border:2px solid red; padding:5px; font-size:12px; text-align:center; font-weight:bold; color:red;">
+                WARNING: Please pay on or before the due date.
             </div>
         `;
 
         htmlBody = `
-            <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000;">BILLING STATEMENT</div>
+            <div style="font-weight:bold; font-size: 15px; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">BILLING STATEMENT</div>
             
             <div class="therm-row"><span>Monthly Plan (${planName})</span><span>${planFee.toFixed(2)}</span></div>
             ${extraRowsHtml}
@@ -4418,58 +4406,30 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             </div>
             
             <div class="therm-divider"></div>
-            <div class="therm-row" style="font-size:16px; font-weight:800;">
+            <div class="therm-row" style="font-size:18px; font-weight:900;">
                 <span>TOTAL TO PAY</span>
                 <span>₱${totalToPay.toFixed(2)}</span>
             </div>
         `;
 
     } else {
-        // --- B. RECEIPT LOGIC (Standard & Advance) ---
-        
-        // 1. Determine Multiplier (For Advance Payers)
+        // RECEIPT LOGIC
         let monthsPaid = Math.floor(paymentAmount / planFee);
-        if(monthsPaid < 1) monthsPaid = 1; // Default to 1 month base
-        
-        // 2. Base Calculation
+        if(monthsPaid < 1) monthsPaid = 1;
         let basePlanCost = planFee * monthsPaid;
         let planDesc = monthsPaid > 1 ? `${planName} x ${monthsPaid} Months` : planName;
-        
-        // 3. Subtotal
         let subTotal = basePlanCost + itemCharges + penalties + reconnection - discounts;
-
-        // 4. Reverse Calculate "Previous Balance" 
-        // Logic: CurrentBalance = (PreviousBalance + Payment) - Subtotal
-        // Therefore: PreviousBalance = CurrentBalance - Payment + Subtotal
         let currentBalance = acc.excessLackingBalance;
         let previousBalance = (currentBalance - paymentAmount) + subTotal; 
-        // Note: This math ensures the invoice numbers add up perfectly on paper.
-
-        // 5. Determine Labels
-        // Logic: previousBalance > 0 is Wallet (Excess), < 0 is Debt (Lacking)
         let prevBalLabel = previousBalance >= 0 ? "LESS: PREV. EXCESS" : "ADD: PREV. LACKING";
         let prevBalValue = Math.abs(previousBalance);
         let prevBalSign = previousBalance >= 0 ? "-" : "+";
-
-        // 6. Final Result Formatting (Current Excess/Lacking)
-        let finalLabel = "";
-        let finalValueString = "";
-        let finalColor = "black";
-
-        if (currentBalance >= 0) {
-            // EXCESS (Positive) -> "if excess make it positive no sign"
-            finalLabel = "CURRENT EXCESS";
-            finalValueString = currentBalance.toFixed(2); 
-            finalColor = "var(--accent-2)";
-        } else {
-            // LACKING (Negative) -> "if lacking is -"
-            finalLabel = "CURRENT LACKING";
-            finalValueString = currentBalance.toFixed(2); // The number is already negative (e.g. -500.00)
-            finalColor = "red";
-        }
+        let finalLabel = currentBalance >= 0 ? "CURRENT EXCESS" : "CURRENT LACKING";
+        let finalValueString = currentBalance.toFixed(2);
+        let finalColor = currentBalance >= 0 ? "var(--accent-2)" : "red";
 
         htmlBody = `
-            <div style="font-weight:bold; text-align:center; margin: 10px 0; border: 1px solid #000;">OFFICIAL RECEIPT</div>
+            <div style="font-weight:bold; font-size: 15px; text-align:center; margin: 10px 0; border: 1px solid #000; padding: 2px;">OFFICIAL RECEIPT</div>
 
             <div class="therm-row"><span>${planDesc}</span><span>${basePlanCost.toFixed(2)}</span></div>
             ${extraRowsHtml}
@@ -4488,30 +4448,22 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
             </div>
 
             <div class="therm-divider"></div>
-            <div class="therm-row" style="font-size:16px; font-weight:800;">
+            <div class="therm-row" style="font-size:18px; font-weight:900;">
                 <span>${finalLabel}</span>
                 <span style="color:${finalColor}">${finalValueString}</span>
             </div>
         `;
     }
 
-    // 4. COMMON ELEMENTS (Footer, Points, etc)
     const coverageText = calculateMonthsCovered(paymentDate, paymentAmount, planFee);
     
+    // CHANGE: Increased Font Size for Points
     const pointsHtml = `
-        <div style="margin: 10px 0; border: 1px dashed #000; padding: 5px; font-size: 10px; text-align: center;">
-            <div style="font-weight:700; margin-bottom:2px;">LOYALTY POINTS</div>
+        <div style="margin: 10px 0; border: 1px dashed #000; padding: 5px; font-size: 12px; text-align: center;">
+            <div style="font-weight:700; margin-bottom:4px;">LOYALTY POINTS</div>
             <span>ADVANCE: <b>${acc.points.advance||0}</b></span> | 
-            <span>ON-TIME: <b>${acc.points.ontime||0}</b></span> | 
+            <span>ON-TIME: <b>${acc.points.ontime||0}</b></span><br> 
             <span>LOST: <b>${acc.points.lost||0}</b></span>
-        </div>
-    `;
-
-    const validityNote = `
-        <div style="margin-top:10px; font-size:9px; text-align:center; font-style:italic; color:#444;">
-            NOTE: This receipt confirms your payment is recorded valid. 
-            In case of system discrepancy, this physical/digital receipt is required for dispute. 
-            <b>NO RECEIPT = VOID CLAIM.</b>
         </div>
     `;
 
@@ -4522,8 +4474,8 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         <div class="therm-header">
             <img src="logo.png" class="therm-logo" alt="Logo"><br>
             <div class="therm-title">N'RTECH INTERNET</div>
-            <div>San Vicente, Tubod, LDN</div>
-            <div>0946-895-3577</div>
+            <div style="font-size:14px; font-weight:bold;">San Vicente, Tubod, LDN</div>
+            <div style="font-size:14px; font-weight:bold;">0946-895-3577</div>
         </div>
         <div class="therm-info">
             <div class="therm-row"><span>Date:</span> <span>${displayDate}</span></div>
@@ -4538,13 +4490,17 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
         ${pointsHtml} ${warningNote} 
         
         <div style="margin-top: 15px; border-top: 2px dashed #000; padding-top: 10px; text-align: center;">
-            <div style="font-weight: 800; margin-bottom: 5px;">PAY VIA GCASH</div>
-            <img src="gcash-qr.png" style="width: 100px; height: 100px; border: 2px solid #000;">
-            <div style="font-size: 14px; font-weight: 700; margin-top: 2px;">0931-792-6807</div>
-            <div style="font-size: 10px;">NO***L JO*N R.</div>
+            <div style="font-weight: 800; font-size: 16px; margin-bottom: 5px;">PAY VIA GCASH</div>
+            <img src="gcash-qr.png" style="width: 150px; height: 150px; border: 2px solid #000;">
+            <div style="font-size: 18px; font-weight: 800; margin-top: 5px;">0931-792-6807</div>
+            <div style="font-size: 12px; font-weight: bold;">NO***L JO*N R.</div>
         </div>
 
-        ${validityNote} <div class="therm-footer"><br><i>Thank you!</i></div>
+        <div style="margin-top:15px; font-size:11px; text-align:center; font-style:italic; color:#444;">
+            NOTE: This receipt confirms your payment is recorded valid. 
+            <b>NO RECEIPT = VOID CLAIM.</b>
+        </div>
+        <div class="therm-footer"><br><i>Thank you!</i></div>
     </div>
     `;
 }
