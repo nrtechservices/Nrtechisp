@@ -972,22 +972,16 @@
     font-size: 11px;
 }
 
-
-
-/* Print Media Query - Forces the browser to treat it as a 58mm slip */
+/* Print Media Query - Forces the browser to treat it as a slip */
 @media print {
     @page {
         margin: 0;
-        /* Sets the paper size to 58mm width, auto height */
-        size: 58mm auto; 
+        size: 58mm auto; /* Changed to 58mm */
     }
     body { 
         margin: 0; 
         padding: 0;
         visibility: hidden;
-        /* Force background colors to print */
-        -webkit-print-color-adjust: exact; 
-        print-color-adjust: exact; 
     }
     .invoice-thermal, .invoice-thermal * {
         visibility: visible;
@@ -996,18 +990,12 @@
         position: absolute;
         left: 0;
         top: 0;
-        /* The specific pixel width you requested */
-        width: 384px; 
-        max-width: 58mm; /* Fallback to physical size */
+        width: 58mm; /* Changed to 58mm */
         border: none;
         padding: 0;
-        /* Ensure content doesn't overflow */
-        overflow: hidden; 
     }
-    /* Hide everything else */
-    .invoice-clean, .container, .modal-backdrop { display: none; } 
+    .invoice-clean { display: none; } 
 }
-
 
 /* --- ADD THIS TO YOUR  SECTION --- */
 
@@ -1254,6 +1242,73 @@
   }
   #accountsTbody .account-box-row.row-terminated .account-name { color: #b71c1c; text-decoration: line-through; }
 
+/* --- STEP 1: ADD THIS TO YOUR <style> SECTION --- */
+
+/* Dedicated 58mm B&W Thermal Style */
+.thermal-58mm-print {
+    font-family: 'Courier New', Courier, monospace; /* Monospace aligns numbers better */
+    width: 58mm;
+    max-width: 58mm;
+    background: #fff;
+    color: #000 !important; /* Force Black */
+    font-size: 12px;
+    line-height: 1.2;
+    padding: 0;
+    margin: 0;
+}
+
+.t-58-header {
+    text-align: center;
+    border-bottom: 2px dashed #000;
+    padding-bottom: 5px;
+    margin-bottom: 5px;
+}
+
+.t-58-logo {
+    width: 40px; 
+    height: auto;
+    filter: grayscale(100%) contrast(200%); /* Forces logo to be black/white */
+    margin-bottom: 2px;
+}
+
+.t-58-title {
+    font-weight: 900;
+    font-size: 14px;
+    text-transform: uppercase;
+}
+
+.t-58-row {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 3px;
+}
+
+.t-58-divider {
+    border-top: 1px dashed #000;
+    margin: 5px 0;
+    width: 100%;
+}
+
+.t-58-bold { font-weight: 800; }
+.t-58-center { text-align: center; }
+
+/* Print Media Query: Hides everything else, shows only the 58mm slip */
+@media print {
+    body * { visibility: hidden; }
+    #thermalPrintContainer, #thermalPrintContainer * { visibility: visible; }
+    #thermalPrintContainer {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 58mm;
+        margin: 0;
+        padding: 0;
+    }
+    @page {
+        size: 58mm auto; /* Sets paper size */
+        margin: 0mm;      /* Removes browser header/footers */
+    }
+}
 
 </style>
 
@@ -1626,15 +1681,7 @@
                 🖨️ Receipt
             </button>
             
-            <div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;">
-    
-    <button id="btnDirectThermal" class="no-print small" style="background: #333; color: white; white-space: nowrap;">
-        🖨️ Thermal (58mm)
-    </button>
-    <button id="btnPrintInvoice" class="no-print small ghost" style="white-space: nowrap;">
-        🖨️ Receipt
-    </button>
-    </div>
+           
 
             <button id="btnPrintReminderInvoice" class="no-print small ghost" style="white-space: nowrap;">
                 🔔 Reminder
@@ -1646,6 +1693,14 @@
                 💬 Messenger
             </button>
         </div>
+<div style="display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px;">
+    
+    <button onclick="printThermalDirect()" class="no-print small" 
+            style="background: #333; color: white; white-space: nowrap; border: 1px solid black;">
+        🖨️ 58mm Thermal
+    </button>
+
+    </div>
 
       </div>
 
@@ -6200,68 +6255,96 @@ setInterval(async () => {
 
 }, 1000);
 
+// --- STEP 2: ADD THIS TO YOUR <script> SECTION ---
 
-/* --- PASTE THIS IN YOUR <script> SECTION --- */
-
-document.getElementById('btnDirectThermal').onclick = () => {
-    // 1. Check if account is selected
-    if (activeAccountIndex === null) return showToast('Please select an account first.', 'warning');
-    
+function printThermalDirect(specificPaymentIndex = null) {
+    if (activeAccountIndex === null) return showToast('Please select an account.', 'warning');
     const acc = accounts[activeAccountIndex];
-    
-    // 2. Generate the Receipt HTML (False = Not a Reminder, Null = Latest Payment)
-    const html = generateInvoiceHtml(acc, false, null);
 
-    // 3. Open a window sized specifically for 384px width
-    // We set height to 600px initially, but it will auto-expand
-    const w = window.open('', '_blank', 'width=384,height=600,toolbar=0,scrollbars=0,status=0');
+    // 1. Get Payment Data
+    let payment = null;
+    if (specificPaymentIndex !== null && acc.payments[specificPaymentIndex]) {
+        payment = acc.payments[specificPaymentIndex];
+    } else if (acc.payments.length > 0) {
+        payment = acc.payments[acc.payments.length - 1]; // Get latest
+    }
+
+    if (!payment) return showToast('No payment record found.', 'error');
+
+    // 2. Prepare Variables
+    const date = new Date(payment.date).toLocaleDateString();
+    const amount = Number(payment.amount).toFixed(2);
+    const ref = payment.referenceNumber || '---';
+    const note = payment.note || '';
     
-    w.document.write(`
-    <html>
-        <head>
-            <title>Thermal Receipt</title>
-            <style>
-                /* Reset margins for the popup window */
-                body { margin: 0; padding: 0; font-family: 'Courier New', monospace; background-color: #fff; }
-                
-                /* Exact styling for the receipt content */
-                .invoice-thermal { 
-                    width: 384px; /* Your requested width */
-                    max-width: 100%;
-                    margin: 0 auto; 
-                    padding: 5px; 
-                    box-sizing: border-box;
-                }
-                
-                /* Re-using your existing styles for consistent look */
-                .therm-header { text-align: center; border-bottom: 2px dashed #000; margin-bottom: 10px; padding-bottom: 10px;}
-                .therm-logo { width: 80px; filter: grayscale(100%); }
-                .therm-title { font-weight: 900; font-size: 18px; text-transform: uppercase; margin-bottom: 5px; }
-                .therm-info { font-size: 12px; font-weight: 600; margin-bottom: 10px; }
-                .therm-row { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: 12px; }
-                .therm-divider { border-top: 1px dashed #000; margin: 8px 0; }
-                .therm-footer { text-align: center; margin-top: 15px; font-size: 10px; }
-                
-                /* Hide scrollbars for cleaner look */
-                ::-webkit-scrollbar { display: none; }
-            </style>
-        </head>
-        <body>
-            ${html}
-            <script>
-                // Wait for images (logo/qr) to load before printing
-                window.onload = function() { 
-                    setTimeout(function() {
-                        window.print();
-                        // Optional: window.close(); 
-                    }, 500);
-                }
-            <\/script>
-        </body>
-    </html>`);
+    // Calculate Balance (Simple logic for receipt snapshot)
+    const balance = acc.excessLackingBalance.toFixed(2);
+    const balLabel = acc.excessLackingBalance >= 0 ? "EXCESS" : "LACKING";
+
+    // 3. Build HTML (Pure Black & White, No Colors)
+    const html = `
+    <div class="thermal-58mm-print">
+        <div class="t-58-header">
+            <img src="logo.png" class="t-58-logo" onerror="this.style.display='none'"><br>
+            <div class="t-58-title">N'RTECH INTERNET</div>
+            <div>Tubod, Lanao del Norte</div>
+            <div>0946-895-3577</div>
+        </div>
+
+        <div class="t-58-center t-58-bold" style="margin: 5px 0; font-size:14px;">OFFICIAL RECEIPT</div>
+
+        <div class="t-58-row"><span>Date:</span> <span>${date}</span></div>
+        <div class="t-58-row"><span>Ref #:</span> <span>${ref}</span></div>
+        <div class="t-58-row"><span>Acc #:</span> <span>${acc.accountNumber}</span></div>
+        <div class="t-58-row"><span>Name:</span> <span>${acc.name.substring(0, 18)}</span></div>
+
+        <div class="t-58-divider"></div>
+
+        <div class="t-58-row t-58-bold" style="font-size:14px;">
+            <span>AMOUNT PAID</span>
+            <span>P${amount}</span>
+        </div>
+        
+        ${note ? `<div class="t-58-row" style="font-size:10px;">Note: ${note}</div>` : ''}
+
+        <div class="t-58-divider"></div>
+
+        <div class="t-58-row">
+            <span>Current Status:</span>
+            <span>${balLabel}</span>
+        </div>
+        <div class="t-58-row t-58-bold">
+            <span>Balance:</span>
+            <span>P${balance}</span>
+        </div>
+
+        <div class="t-58-divider"></div>
+
+        <div class="t-58-center" style="font-size:10px;">
+            Loyalty Pts: ${acc.points.advance + acc.points.ontime - acc.points.lost}<br>
+            <br>
+            <i>Thank you for your payment!</i>
+        </div>
+        <br><br>.
+    </div>
+    `;
+
+    // 4. Inject into a hidden container for printing
+    let container = document.getElementById('thermalPrintContainer');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'thermalPrintContainer';
+        document.body.appendChild(container);
+    }
+    container.innerHTML = html;
+
+    // 5. Trigger Print
+    window.print();
     
-    w.document.close();
-};
+    // 6. Clean up (Optional, but keeps DOM clean)
+    // setTimeout(() => container.innerHTML = '', 1000); 
+}
+
 
 
 </script>
