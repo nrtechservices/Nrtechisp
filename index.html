@@ -1283,6 +1283,30 @@
     }
 }
 
+/* --- PASTE THIS AT THE BOTTOM OF YOUR CSS --- */
+
+/* High Contrast Black & White Mode for Downloads */
+.grayscale-mode {
+    filter: grayscale(100%) contrast(150%);
+    background-color: #ffffff !important;
+    color: #000000 !important;
+}
+
+/* Ensure text is black in B&W mode */
+.grayscale-mode * {
+    color: #000000 !important;
+    border-color: #000000 !important;
+    text-shadow: none !important;
+}
+
+/* Hide colored badges in B&W mode to look cleaner */
+.grayscale-mode .badge {
+    border: 1px solid #000;
+    color: #000 !important;
+    background: #fff !important;
+}
+
+
 </style>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
@@ -5375,25 +5399,30 @@ document.getElementById('btnSaveDiscount').onclick = () => {
 };
 
 /* =========================================
-   FIXED: MOBILE INVOICE DOWNLOAD
+   UPDATED: MOBILE INVOICE DOWNLOAD (COLOR vs B&W)
    ========================================= */
 document.getElementById('btnDownloadInvoicePng').onclick = async () => {
     if (activeAccountIndex === null) return showToast('Select an account.', 'warning');
     const acc = accounts[activeAccountIndex];
 
-    // Ask type
+    // 1. Ask Type (Bill or Receipt)
     const isReminder = await customConfirm(
-        "Generate Billing Statement (Total Due)?\nCancel for Payment Receipt.", 
-        "📄 Select Type"
+        "Generate Billing Statement (Total Due)?\nClick 'Proceed' for Bill, 'Cancel' for Receipt.", 
+        "📄 Select Document Type"
     );
 
-    // 1. Generate Content
+    // 2. Ask Style (Color or B&W)
+    // We use a custom confirm logic here. 
+    // Proceed = Color, Cancel = Black & White
+    const isColor = await customConfirm(
+        "Do you want a COLORED receipt?\n\nClick 'Proceed' for GOLD/COLOR.\nClick 'Cancel' for BLACK & WHITE.", 
+        "🎨 Select Style"
+    );
+
+    // 3. Generate Content
     const htmlContent = generateInvoiceHtml(acc, isReminder);
-    const invoiceContainer = document.getElementById('invoiceContent');
-    invoiceContainer.innerHTML = htmlContent;
     
-    // 2. Mobile Fix: Clone the element to document body to ensure it renders
-    // We create a temporary container that is visible but covers the screen with white
+    // 4. Create Temp Container
     const tempContainer = document.createElement('div');
     tempContainer.style.position = 'fixed';
     tempContainer.style.top = '0';
@@ -5407,22 +5436,28 @@ document.getElementById('btnDownloadInvoicePng').onclick = async () => {
     tempContainer.style.alignItems = 'center';
     tempContainer.innerHTML = htmlContent; // Inject invoice
     
+    // 5. Apply B&W Filter if user selected Cancel
+    if (!isColor) {
+        const invDiv = tempContainer.querySelector('.invoice-thermal');
+        if(invDiv) invDiv.classList.add('grayscale-mode');
+    }
+
     document.body.appendChild(tempContainer);
     showToast('Generating Image...', 'info');
 
-    // 3. Find the specific invoice div inside our temp container
+    // 6. Find the specific invoice div inside our temp container
     const targetElement = tempContainer.querySelector('.invoice-thermal');
 
-    // 4. Capture with Lower Scale for Mobile Compatibility
-    // Scale 3 causes crashes on some phones. Scale 2 is HD enough.
+    // 7. Capture
     html2canvas(targetElement, {
         scale: 2, 
         useCORS: true, 
         backgroundColor: '#ffffff',
         logging: false
     }).then(canvas => {
-        // Create filename
-        const filename = `INVOICE_${acc.name.replace(/\s+/g,'_')}_${Date.now()}.jpg`;
+        // Create filename based on choice
+        const suffix = isColor ? 'COLOR' : 'BW';
+        const filename = `INVOICE_${acc.name.replace(/\s+/g,'_')}_${suffix}_${Date.now()}.jpg`;
 
         // Mobile Friendly Download Method
         canvas.toBlob(function(blob) {
@@ -5438,9 +5473,9 @@ document.getElementById('btnDownloadInvoicePng').onclick = async () => {
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
                 document.body.removeChild(tempContainer); // Remove the temp view
-                showToast('Invoice Downloaded!', 'success');
+                showToast(`Invoice (${suffix}) Downloaded!`, 'success');
             }, 100);
-        }, 'image/jpeg', 0.9); // Save as JPEG (smaller file size, better compatibility than PNG)
+        }, 'image/jpeg', 0.9);
         
     }).catch(err => {
         console.error(err);
@@ -5846,16 +5881,24 @@ document.getElementById('btnNetworkAgreement').onclick = async () => {
 
 
 /* ============================================================
-   FEATURE 1: DOWNLOAD SPECIFIC RECEIPT AS PNG
+   UPDATED FEATURE: DOWNLOAD SPECIFIC RECEIPT (With Color/B&W Choice)
    ============================================================ */
-function downloadTransactionPng(accIdx, payIdx) {
+async function downloadTransactionPng(accIdx, payIdx) {
     const acc = accounts[accIdx];
     
-    // 1. Generate the HTML for this specific payment
+    // 1. Ask Style (Color or B&W) via Popup
+    // We use the existing customConfirm logic. 
+    // Proceed = Color, Cancel = Black & White
+    const isColor = await customConfirm(
+        "Do you want a COLORED receipt?\n\nClick 'Proceed' for GOLD/COLOR.\nClick 'Cancel' for BLACK & WHITE.", 
+        "🎨 Select Receipt Style"
+    );
+
+    // 2. Generate the HTML for this specific payment
     // We pass 'false' for isReminder, and the payIdx to get specific data
     const htmlContent = generateInvoiceHtml(acc, false, payIdx);
     
-    // 2. Create a temporary container off-screen
+    // 3. Create a temporary container off-screen
     const tempContainer = document.createElement('div');
     tempContainer.style.position = 'fixed';
     tempContainer.style.top = '0';
@@ -5868,19 +5911,27 @@ function downloadTransactionPng(accIdx, payIdx) {
     tempContainer.style.justifyContent = 'center';
     tempContainer.style.alignItems = 'center';
     tempContainer.innerHTML = htmlContent;
+
+    // 4. APPLY GRAYSCALE FILTER IF 'CANCEL' WAS CLICKED
+    if (!isColor) {
+        const invDiv = tempContainer.querySelector('.invoice-thermal');
+        if(invDiv) invDiv.classList.add('grayscale-mode');
+    }
     
     document.body.appendChild(tempContainer);
     showToast('Generating Receipt...', 'info');
 
     const targetElement = tempContainer.querySelector('.invoice-thermal');
 
-    // 3. Convert to Image
+    // 5. Convert to Image
     html2canvas(targetElement, {
         scale: 2, // High quality
         useCORS: true, 
         backgroundColor: '#ffffff'
     }).then(canvas => {
-        const filename = `RECEIPT_${acc.accountNumber}_${Date.now()}.png`;
+        // Create filename based on choice
+        const suffix = isColor ? 'COLOR' : 'BW';
+        const filename = `RECEIPT_${acc.accountNumber}_${suffix}_${Date.now()}.jpg`; // Changed to .jpg for lighter file
         
         canvas.toBlob(function(blob) {
             const url = URL.createObjectURL(blob);
@@ -5895,9 +5946,9 @@ function downloadTransactionPng(accIdx, payIdx) {
                 document.body.removeChild(link);
                 URL.revokeObjectURL(url);
                 document.body.removeChild(tempContainer);
-                showToast('Receipt Downloaded!', 'success');
+                showToast(`Receipt (${suffix}) Downloaded!`, 'success');
             }, 100);
-        }, 'image/png');
+        }, 'image/jpeg', 0.9);
         
     }).catch(err => {
         console.error(err);
@@ -6222,8 +6273,6 @@ setInterval(async () => {
 }, 1000);
 
 
-// --- DIRECT THERMAL PRINT LOGIC ---
-
 /* =========================
    UPDATED: 58MM DIRECT THERMAL AUTO-PRINT
    ========================= */
@@ -6237,6 +6286,7 @@ document.getElementById('btnDirectThermal').onclick = () => {
     const invoiceHtml = generateInvoiceHtml(acc, false);
 
     // 3. Open a temporary popup window
+    // We make it small to simulate the receipt feel
     const printWindow = window.open('', '_blank', 'width=350,height=600,left=200,top=100');
 
     if (!printWindow) {
@@ -6265,8 +6315,14 @@ document.getElementById('btnDirectThermal').onclick = () => {
                     background: #fff; 
                     width: 58mm; /* Hard limit width */
                     max-width: 58mm;
-                    padding: 2px 0;
+                    padding: 5px 0;
                     color: #000;
+                }
+                
+                /* FORCE BLACK AND WHITE */
+                body * {
+                    color: #000 !important;
+                    filter: grayscale(100%);
                 }
                 
                 /* INVOICE STYLING */
