@@ -6224,38 +6224,55 @@ setInterval(async () => {
 
 // --- DIRECT THERMAL PRINT LOGIC ---
 
+/* =========================
+   UPDATED: 58MM DIRECT THERMAL AUTO-PRINT
+   ========================= */
 document.getElementById('btnDirectThermal').onclick = () => {
     // 1. Check if account is selected
     if (activeAccountIndex === null) return showToast('Please select an account first.', 'warning');
     
     const acc = accounts[activeAccountIndex];
     
-    // 2. Generate the Receipt HTML using your existing function
-    // (false = Receipt, not reminder)
+    // 2. Generate Receipt HTML (false = Receipt, not reminder)
     const invoiceHtml = generateInvoiceHtml(acc, false);
 
-    // 3. Open a temporary window for printing
-    const printWindow = window.open('', '_blank', 'width=400,height=600,left=200,top=100');
+    // 3. Open a temporary popup window
+    const printWindow = window.open('', '_blank', 'width=350,height=600,left=200,top=100');
 
-    // 4. Write the Document with specific 58mm CSS
+    if (!printWindow) {
+        showToast('Pop-up blocked! Please allow pop-ups for this site.', 'error');
+        return;
+    }
+
+    // 4. Write the Document with STRICT 58mm CSS
     printWindow.document.write(`
+        <!DOCTYPE html>
         <html>
         <head>
-            <title>Thermal Receipt - ${acc.accountNumber}</title>
+            <title>Receipt-${acc.accountNumber}</title>
             <style>
-                /* RESET */
+                /* RESET & PAGE SETUP */
                 * { box-sizing: border-box; margin: 0; padding: 0; }
+                
+                /* This tells the browser/printer driver to use 58mm width */
+                @page { 
+                    margin: 0; 
+                    size: 58mm auto; 
+                }
+
                 body { 
-                    font-family: 'Courier New', monospace; 
+                    font-family: 'Courier New', monospace; /* Monospace is best for thermal */
                     background: #fff; 
-                    width: 58mm; /* Force Width */
+                    width: 58mm; /* Hard limit width */
                     max-width: 58mm;
+                    padding: 2px 0;
+                    color: #000;
                 }
                 
-                /* INVOICE STYLING REPLICATION */
+                /* INVOICE STYLING */
                 .invoice-thermal { 
                     width: 100%; 
-                    padding: 5px 0; 
+                    padding: 0 5px; /* Tiny side padding */
                 }
                 .therm-header { 
                     text-align: center; 
@@ -6264,13 +6281,16 @@ document.getElementById('btnDirectThermal').onclick = () => {
                     margin-bottom: 5px; 
                 }
                 .therm-logo { 
-                    width: 60px; /* Smaller for thermal */
-                    filter: grayscale(100%); 
+                    width: 50px; /* Small logo */
+                    height: auto;
+                    filter: grayscale(100%) contrast(200%); /* Optimize for B&W print */
+                    display: block;
+                    margin: 0 auto 5px auto;
                 }
                 .therm-title {
                     font-weight: 900;
                     font-size: 14px;
-                    margin-top: 5px;
+                    text-transform: uppercase;
                 }
                 .therm-info {
                     font-size: 11px;
@@ -6282,6 +6302,9 @@ document.getElementById('btnDirectThermal').onclick = () => {
                     font-size: 11px;
                     margin-bottom: 3px;
                 }
+                /* Font weight adjustments for thermal clarity */
+                b, strong { font-weight: 900; }
+                
                 .therm-divider {
                     border-top: 1px dashed #000;
                     margin: 5px 0;
@@ -6289,32 +6312,35 @@ document.getElementById('btnDirectThermal').onclick = () => {
                 .therm-footer {
                     text-align: center;
                     font-size: 10px;
-                    margin-top: 10px;
-                    padding-bottom: 20px; /* Space for cutter */
+                    margin-top: 15px;
+                    padding-bottom: 30px; /* Extra space for paper tear/cutter */
                 }
                 
-                /* HIDE SCROLLBARS IN PRINT WINDOW */
+                /* HIDE SCROLLBARS */
                 ::-webkit-scrollbar { display: none; }
             </style>
         </head>
         <body>
             ${invoiceHtml}
             <script>
-                // Auto-print when loaded, then close
+                // Auto-print logic
                 window.onload = function() {
                     window.focus();
+                    // Slight delay to ensure images/logos load before printing
                     setTimeout(() => {
                         window.print();
-                        // Optional: window.close(); // Uncomment to close auto after print
-                    }, 500);
+                        // Optional: Auto-close window after printing (uncomment to enable)
+                        // window.onafterprint = function() { window.close(); } 
+                    }, 500); 
                 };
             <\/script>
         </body>
         </html>
     `);
 
-    printWindow.document.close();
+    printWindow.document.close(); // Finishes writing
 };
+
 
 
 </script>
