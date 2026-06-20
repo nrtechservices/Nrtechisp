@@ -3382,15 +3382,16 @@ function openAccount(idx){
 
         tr.innerHTML = `
         <td>${new Date(t.date).toLocaleDateString()}</td>
-        <td>${t.ref || ''}</td> <td class="${t.type === 'charge' ? 'text-danger' : 'text-success'}" style="font-weight:700">
-            ${t.type === 'payment' ? 'Payment' : t.type.charAt(0).toUpperCase() + t.type.slice(1)}
+        <td>${t.ref || ''}</td>         <td class="${t.type === 'charge' ? 'text-danger' : 'text-success'}" style="font-weight:700">
+            ${t.type === 'payment' ? `Payment <span style="font-size:10px; color:var(--muted); font-weight:normal;">(${t.obj.planNameAtTime || a.plan.name})</span>` : t.type.charAt(0).toUpperCase() + t.type.slice(1)}
         </td>
-                <td>
+        <td>
             ${t.note || ''}
-            <div style="font-size:10px; color:var(--accent-2); font-weight: 600;">
-                ${t.obj && t.obj.coverage ? t.obj.coverage : ''}
+            <div style="font-size:11px; color:var(--accent-2); font-weight: 700; margin-top: 2px;">
+                ${t.obj && t.obj.coverage ? 'Covers: ' + t.obj.coverage : ''}
             </div>
         </td>
+
         <td style="text-align:right">₱${Number(t.amount).toFixed(2)}</td>
 
         <td class="no-print" style="display:flex; gap:5px;">
@@ -4154,12 +4155,18 @@ function renderPaymentLogs() {
 
     let allLogs = [];
     accounts.forEach(acc => {
-        // Payments
+        //        // Payments
         acc.payments.forEach(p => {
             if (p.date && p.date.startsWith(monthFilter)) {
-                allLogs.push({ date: p.date, type: 'Payment', desc: p.note || 'Regular Payment', amount: p.amount, acc: acc.accountNumber, name: acc.name, ref: p.referenceNumber });
+                // Attach the coverage and historical plan name to the description
+                let extendedDesc = p.note || 'Regular Payment';
+                if (p.coverage) extendedDesc += ` <br><span style="font-size:10px; color:var(--accent-2); font-weight:bold;">Covers: ${p.coverage}</span>`;
+                if (p.planNameAtTime) extendedDesc += ` <span style="font-size:10px; color:var(--muted);">(${p.planNameAtTime})</span>`;
+
+                allLogs.push({ date: p.date, type: 'Payment', desc: extendedDesc, amount: p.amount, acc: acc.accountNumber, name: acc.name, ref: p.referenceNumber });
             }
         });
+
         // Charges
         if(acc.charges) acc.charges.forEach(c => {
              if (c.date && c.date.startsWith(monthFilter)) {
@@ -5128,14 +5135,20 @@ function renderClientPaymentHistory(account) {
     
     account.payments.slice().reverse().forEach(p => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `
+                tr.innerHTML = `
             <td>${new Date(p.date + 'T00:00:00').toLocaleDateString()}</td>
             <td>${p.referenceNumber || 'N/A'}</td>
             <td>₱${Number(p.amount).toFixed(2)}</td>
-            <td>${p.note || ''}</td>
+            <td>
+                ${p.note || 'Monthly Bill'}
+                <div style="font-size: 10px; color: var(--accent-2); font-weight: bold;">
+                    ${p.coverage ? 'Covers: ' + p.coverage : ''}
+                </div>
+            </td>
             <td>₱${(p.surchargeApplied || 0).toFixed(2)}</td>
             <td>₱${(p.appliedTotal || p.amount).toFixed(2)}</td>
         `;
+
         tbody.appendChild(tr);
     });
 }
@@ -5521,12 +5534,16 @@ document.getElementById('btnBackupCSV').onclick = () => {
     const fullSystemData = {
         timestamp: new Date().toISOString(),
         accounts: accounts,
-                settings: {
+        settings: {
             plans: systemPlans,
-            notifications: adminNotifications
+            notifications: adminNotifications,
+            invSettings: JSON.parse(localStorage.getItem('nrtech_inv_settings_v3')) || {},
+            pendingClients: JSON.parse(localStorage.getItem('nrtech_pending_clients_v3')) || [],
+            pendingUpgrades: JSON.parse(localStorage.getItem('nrtech_pending_upgrades_v3')) || [],
+            pendingPayments: JSON.parse(localStorage.getItem('nrtech_pending_payments_v3')) || []
         }
-
     };
+
 
     const jsonString = JSON.stringify(fullSystemData, null, 2);
     const blob = new Blob([jsonString], { type: 'application/json' });
@@ -5574,15 +5591,19 @@ document.getElementById('fileRecoverInput').onchange = (event) => {
                     accounts = dataObj.accounts;
                     saveAccounts();
 
-                    // Restore Settings if they exist
+                                     // Restore Settings if they exist
                     if (dataObj.settings) {
-                                                if(dataObj.settings.plans) systemPlans = dataObj.settings.plans;
+                        if(dataObj.settings.plans) systemPlans = dataObj.settings.plans;
                         if(dataObj.settings.notifications) adminNotifications = dataObj.settings.notifications;
+                        if(dataObj.settings.invSettings) localStorage.setItem('nrtech_inv_settings_v3', JSON.stringify(dataObj.settings.invSettings));
+                        if(dataObj.settings.pendingClients) localStorage.setItem('nrtech_pending_clients_v3', JSON.stringify(dataObj.settings.pendingClients));
+                        if(dataObj.settings.pendingUpgrades) localStorage.setItem('nrtech_pending_upgrades_v3', JSON.stringify(dataObj.settings.pendingUpgrades));
+                        if(dataObj.settings.pendingPayments) localStorage.setItem('nrtech_pending_payments_v3', JSON.stringify(dataObj.settings.pendingPayments));
                         
                         saveSystemPlans();
                         localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(adminNotifications));
-
                     }
+
 
                     renderAccounts();
                     showToast("System Restored Successfully!", "success");
@@ -6289,7 +6310,7 @@ document.getElementById('btnDirectThermal').onclick = () => {
                 }
                 
                 /* HIDE SCROLLBARS */
-                ::-webkit-scrollbar { display: none; }
+               ::-webkit-scrollbar { display: none; }
             </style>
         </head>
         <body>
@@ -6312,6 +6333,38 @@ document.getElementById('btnDirectThermal').onclick = () => {
 
     printWindow.document.close(); // Finishes writing
 };
+
+function calculateMonthsCovered(paymentDate, amountPaid, planFee) {
+    // Prevent division by zero or errors if no fee exists
+    if (!planFee || planFee <= 0) return '';
+    
+    // Calculate how many full months the payment covers
+    const monthsPaid = Math.floor(amountPaid / planFee);
+    
+    // If it's less than one full month, label it as a partial payment
+    if (monthsPaid <= 0) return 'Partial Payment';
+
+    // Start counting from the payment date
+    // Note: If you have a specific "Next Due Date" property, you can swap paymentDate for that property here.
+    const startDate = new Date(paymentDate + 'T00:00:00'); 
+    const coveredMonths = [];
+
+    // Generate the names of the months covered
+    for (let i = 0; i < monthsPaid; i++) {
+        const d = new Date(startDate.getFullYear(), startDate.getMonth() + i, 1);
+        const monthName = d.toLocaleString('default', { month: 'short' });
+        coveredMonths.push(`${monthName} ${d.getFullYear()}`);
+    }
+
+    // Format the output neatly
+    if (coveredMonths.length === 1) {
+        return coveredMonths[0]; // Example: "Jun 2026"
+    } else if (coveredMonths.length > 1) {
+        return `${coveredMonths[0]} to ${coveredMonths[coveredMonths.length - 1]}`; // Example: "Jun 2026 to Aug 2026"
+    }
+    
+    return '';
+}
 
 
 
