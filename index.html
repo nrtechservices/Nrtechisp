@@ -4652,19 +4652,28 @@ function init(){
   accounts.forEach(a => {
       a.billingDay = FIXED_BILLING_DAY;
       
-      // --- DATA PATCH: Retroactively update existing old payments ---
+      // --- CORRECTED DATA PATCH: Respect Historical Plans ---
       if (a.payments) {
           a.payments.forEach(p => {
-              // 1. If old payments don't have the plan locked in, use the current one
-              if (!p.planFeeAtTime) p.planFeeAtTime = a.plan.fee;
-              if (!p.planNameAtTime) p.planNameAtTime = a.plan.name;
+              // 1. NEVER overwrite the historical fee if it already exists!
+              // (Your older code saved p.planFeeAtTime, so we prioritize that)
+              let historicalFee = p.planFeeAtTime ? parseFloat(p.planFeeAtTime) : parseFloat(a.plan.fee);
+              p.planFeeAtTime = historicalFee;
               
-              // 2. Force re-calculate the explicit covered months based on the Payment Date
-              let monthsToCover = Math.floor(p.amount / p.planFeeAtTime);
+              // 2. Identify the historical plan safely without ruining old records
+              if (!p.planNameAtTime) {
+                  if (historicalFee === parseFloat(a.plan.fee)) {
+                      p.planNameAtTime = a.plan.name; // Safe to use current name if fees match
+                  } else {
+                      p.planNameAtTime = "Previous Plan"; // Protects the integrity of the old record
+                  }
+              }
+              
+              // 3. Calculate explicit covered months based on the Payment Date + Historical Fee
+              let monthsToCover = Math.floor(p.amount / historicalFee);
               let coveredMonths = [];
               
               if (monthsToCover >= 1) {
-                  // Lock to the exact date the payment was recorded
                   let tempDate = new Date(p.date + 'T00:00:00'); 
                   for (let i = 0; i < monthsToCover; i++) {
                       coveredMonths.push(tempDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
@@ -4674,7 +4683,6 @@ function init(){
                   coveredMonths.push("Partial Payment");
               }
               
-              // 3. Save it to the old payment record
               p.coverageText = coveredMonths.join(", ");
           });
       }
@@ -4683,7 +4691,8 @@ function init(){
       const lastPayDate = a.payments.length>0 ? a.payments[a.payments.length-1].date : null;
       a.nextDue = computeNextDue(lastPayDate, FIXED_BILLING_DAY);
   });
-  saveAccounts(); // Saves the retroactively fixed old records back to storage permanently
+  saveAccounts();
+
 
   
 
