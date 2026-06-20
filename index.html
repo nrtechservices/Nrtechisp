@@ -1581,9 +1581,9 @@
             <div class="row" style="width: 100%; max-width: 500px; justify-content: flex-end;">
                 <input id="search" placeholder="Search account or name" style="flex-grow:1;" oninput="renderAccounts()" />
                 <button id="btnAdd" class="no-print small">➕ Add</button>
-                <button id="btnImport" class="no-print small ghost">Import</button>
-                <input type="file" id="fileImport" accept=".csv" style="display:none">
-                <button id="btnExport" class="no-print small ghost">Backup</button>
+                <button id="btnImport" class="no-print small ghost">⬆️ Restore</button>
+                <input type="file" id="fileImport" accept=".json" style="display:none">
+                <button id="btnExport" class="no-print small ghost">⬇️ Backup</button>
 
             </div>
         </div>
@@ -3636,12 +3636,27 @@ document.getElementById('btnExportPayments').onclick = ()=>{
 }
 function downloadAccountCSV(idx){
   const acc = accounts[idx];
-  let rows = [['date','amount_paid','note','surcharge_applied','balance_remaining/excess']];
-  acc.payments.forEach(p=> rows.push([p.date,p.amount,p.note||'',p.surchargeApplied||0,p.balanceApplied||0]));
+  let rows = [['Date', 'Amount Paid', 'Plan at Time', 'Months Covered', 'Note', 'Net Applied']];
+  
+  acc.payments.forEach(p => {
+      let planDetail = p.planNameAtTime ? `${p.planNameAtTime} (₱${p.planFeeAtTime})` : '—';
+      let coverage = p.coverageText || '—';
+      
+      rows.push([
+          p.date,
+          p.amount,
+          planDetail,
+          coverage,
+          p.note || '',
+          p.appliedTotal || p.amount
+      ]);
+  });
+  
   const csv = rows.map(r=> r.map(v=> `"${(''+v).replace(/"/g,'""')}"`).join(',')).join('\n');
   const blob = new Blob([csv], {type:'text/csv'}); const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = `${acc.accountNumber}_payments.csv`; a.click(); URL.revokeObjectURL(url);
 }
+
 
 // --- ADD / IMPORT / EXPORT ---
 document.getElementById('btnAdd').onclick = ()=> {
@@ -3783,7 +3798,7 @@ document.getElementById('btnExport').onclick = () => {
 };
 
 
-// --- IMPORT FROM CSV ---
+//// --- RESTORE FROM JSON (FULL DATABASE BACKUP) ---
 document.getElementById('btnImport').onclick = () => {
     document.getElementById('fileImport').click();
 };
@@ -3792,110 +3807,54 @@ document.getElementById('fileImport').onchange = (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    // 1. Strict File Type Check
-    if (!file.name.endsWith('.csv')) {
-        showToast('Invalid file! Please upload a .csv file only.', 'error');
-        document.getElementById('fileImport').value = ''; // Reset input
+    if (!file.name.endsWith('.json')) {
+        showToast('Invalid file! Please upload a .json backup file.', 'error');
+        document.getElementById('fileImport').value = ''; 
         return;
     }
 
     const reader = new FileReader();
-    reader.onload = function(e) {
-        const text = e.target.result;
-        importCSVProcess(text);
+    reader.onload = async function(e) {
+        try {
+            const dataObj = JSON.parse(e.target.result);
+
+            if (dataObj.accounts && Array.isArray(dataObj.accounts)) {
+                const confirmRestore = await customConfirm(
+                    `Found ${dataObj.accounts.length} accounts in this backup.\nThis will OVERWRITE your current database. Proceed?`, 
+                    "⚠️ Restore Backup"
+                );
+
+                if (confirmRestore) {
+                    // Restore Accounts
+                    accounts = dataObj.accounts;
+                    saveAccounts();
+
+                    // Restore Settings (if they exist in the backup)
+                    if (dataObj.settings) {
+                        if (dataObj.settings.plans) systemPlans = dataObj.settings.plans;
+                        if (dataObj.settings.notifications) adminNotifications = dataObj.settings.notifications;
+                        
+                        saveSystemPlans();
+                        localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(adminNotifications));
+                    }
+
+                    renderAccounts();
+                    showToast("Database Restored Successfully!", "success");
+                    
+                    // Optional: Hard reload to ensure UI is perfectly synced with new data
+                    setTimeout(() => location.reload(), 1000); 
+                }
+            } else {
+                showToast("No valid data found in file.", "error");
+            }
+        } catch (err) {
+            console.error(err);
+            showToast("Error reading file. Ensure it is a valid data.json backup.", "error");
+        }
     };
     reader.readAsText(file);
-    document.getElementById('fileImport').value = ''; // Reset input
+    document.getElementById('fileImport').value = ''; 
 };
-
-function importCSVProcess(csvText) {
-    const lines = csvText.split('\n');
-    let importedCount = 0;
-
-    // Regex to split CSV lines while respecting quotes (e.g. "City, Address")
-    const csvSplitRegex = /(?:,|^)(?:"([^"]*)"|([^",]*))/g;
-
-    // Start loop at i = 1 to skip the Header row
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-
-        const cols = [];
-        let match;
-        // Reset regex state
-        csvSplitRegex.lastIndex = 0;
-        
-        while ((match = csvSplitRegex.exec(line)) !== null) {
-            // match[1] is quoted value, match[2] is unquoted value
-            let val = match[1] !== undefined ? match[1] : match[2];
-            // Unescape double quotes if present
-            val = val ? val.replace(/""/g, '"').trim() : ''; 
-            cols.push(val);
-        }
-
-        // Skip empty or malformed rows (needs at least Account Number and Name)
-        if(cols.length < 2) continue; 
-
-        // MAPPING: Ensure this matches the Export order
-        // 0: Acc#, 1: Name, 2: Addr, 3: Contact, 4: PlanName, 5: Fee, 6: Speed, 7: Status, 8: PPPUser, 9: PPPPass, 10: MessengerID
-
-        const newAcc = {
-            accountNumber: cols[0] || autoGenerateAccountNumbers()[0],
-            name: cols[1] || 'Unknown',
-            address: cols[2] || '',
-            contact: cols[3] || '',
-            plan: {
-                name: cols[4] || 'Basic',
-                fee: Number(cols[5]) || 499,
-                speed: cols[6] || 'Up to 10 Mbps'
-            },
-            billingDay: FIXED_BILLING_DAY,
-            status: cols[7] || 'Active',
-            pppoeUsername: cols[8] || '',
-            pppoePassword: cols[9] || '',
-            messengerId: cols[10] || '',
-            
-            // Default System Fields
-            payments: [],
-            points: { advance: 0, ontime: 0, lost: 0 },
-            nextDue: computeNextDue(null, FIXED_BILLING_DAY),
-            excessLackingBalance: 0,
-            createdAt: new Date().toISOString(),
-            clientUsername: '', // Defaults for imported data
-            clientPassword: ''
-        };
-
-        // Check if account already exists to avoid duplicates (Update existing or Skip)
-        const existingIndex = accounts.findIndex(a => a.accountNumber === newAcc.accountNumber);
-        
-        if (existingIndex === -1) {
-            // Create new
-            accounts.push(newAcc);
-            importedCount++;
-        } else {
-            // OPTIONAL: Update details of existing account from CSV, preserving payments
-            // Uncomment the lines below if you want the CSV to overwrite customer details but keep payment history
-            /*
-            newAcc.payments = accounts[existingIndex].payments;
-            newAcc.points = accounts[existingIndex].points;
-            newAcc.excessLackingBalance = accounts[existingIndex].excessLackingBalance;
-            newAcc.nextDue = accounts[existingIndex].nextDue;
-            accounts[existingIndex] = newAcc;
-            importedCount++; 
-            */
-        }
-    }
-
-    saveAccounts();
-    renderAccounts();
-    
-    if(importedCount > 0) {
-        showToast(`Successfully imported ${importedCount} clients from client.csv!`, 'success');
-    } else {
-        showToast('No new clients added. (Duplicates skipped or empty file).', 'warning');
-    }
-}
-
 
 /* =========================
    NEW QUICK PAY LOGIC
@@ -4217,27 +4176,35 @@ function renderPaymentLogs() {
 
 document.getElementById('btnExportLogs').onclick = () => {
     const monthFilter = document.getElementById('logsMonthFilter').value;
-    let rows = [['Date','Account #','Customer','Amount Paid','Note','Penalty/Excess Applied','Net Applied']];
+    let rows = [['Date', 'Account #', 'Customer', 'Amount Paid', 'Plan at Time', 'Months Covered', 'Note', 'Net Applied']];
+    
     accounts.forEach(acc => {
         acc.payments.forEach(p => {
             if (p.date && p.date.startsWith(monthFilter)) {
+                let planDetail = p.planNameAtTime ? `${p.planNameAtTime} (₱${p.planFeeAtTime})` : '—';
+                let coverage = p.coverageText || '—';
+                
                 rows.push([
                     p.date,
                     acc.accountNumber,
                     acc.name,
                     p.amount,
+                    planDetail,
+                    coverage,
                     p.note || '',
-                    p.surchargeApplied || 0,
                     p.appliedTotal || p.amount
                 ]);
             }
         });
     });
+    
     const csv = rows.map(r=> r.map(v=> `"${(''+v).replace(/"/g,'""')}"`).join(',')).join('\n');
     const blob = new Blob([csv], {type:'text/csv'}); const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = `payments_log_${monthFilter}.csv`; a.click(); URL.revokeObjectURL(url);
     showToast(`Logs for ${monthFilter} exported.`, 'success');
 };
+
+    
 
 /* =========================
    PAYMENT ANALYSIS CHART (MODIFIED)
@@ -4652,38 +4619,51 @@ function init(){
   accounts.forEach(a => {
       a.billingDay = FIXED_BILLING_DAY;
       
-      // --- CORRECTED DATA PATCH: Respect Historical Plans ---
+      // --- SMART DATA PATCH: Fix Old Records Based on Payment Amount ---
       if (a.payments) {
           a.payments.forEach(p => {
-              // 1. NEVER overwrite the historical fee if it already exists!
-              // (Your older code saved p.planFeeAtTime, so we prioritize that)
-              let historicalFee = p.planFeeAtTime ? parseFloat(p.planFeeAtTime) : parseFloat(a.plan.fee);
-              p.planFeeAtTime = historicalFee;
               
-              // 2. Identify the historical plan safely without ruining old records
-              if (!p.planNameAtTime) {
-                  if (historicalFee === parseFloat(a.plan.fee)) {
-                      p.planNameAtTime = a.plan.name; // Safe to use current name if fees match
+              // Only run this fix on old records that haven't been permanently fixed yet
+              if (!p.isHistoricallyFixed) {
+                  
+                  let amountPaid = Number(p.amount);
+                  
+                  // 1. Auto-detect the historical plan based on the AMOUNT they actually paid
+                  if (amountPaid % 1099 === 0 || amountPaid === 1099) {
+                      p.planNameAtTime = "PREMIUM";
+                      p.planFeeAtTime = 1099;
+                  } 
+                  else if (amountPaid % 899 === 0 || amountPaid === 899) {
+                      p.planNameAtTime = "GAMER";
+                      p.planFeeAtTime = 899;
+                  }
+                  // (You can add more plan prices here if you have others!)
+                  else {
+                      // Fallback if the amount doesn't match standard plans
+                      p.planNameAtTime = a.plan.name;
+                      p.planFeeAtTime = parseFloat(a.plan.fee);
+                  }
+                  
+                  // 2. Calculate the covered months starting from the exact Date of the record
+                  let monthsToCover = Math.floor(amountPaid / p.planFeeAtTime);
+                  let coveredMonths = [];
+                  
+                  if (monthsToCover >= 1) {
+                      // Locks to the exact date the old payment was recorded
+                      let tempDate = new Date(p.date + 'T00:00:00'); 
+                      for (let i = 0; i < monthsToCover; i++) {
+                          coveredMonths.push(tempDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
+                          tempDate.setMonth(tempDate.getMonth() + 1);
+                      }
                   } else {
-                      p.planNameAtTime = "Previous Plan"; // Protects the integrity of the old record
+                      coveredMonths.push("Partial Payment");
                   }
+                  
+                  p.coverageText = coveredMonths.join(", ");
+                  
+                  // 3. Lock this record! Future new payments won't be altered by this patch.
+                  p.isHistoricallyFixed = true; 
               }
-              
-              // 3. Calculate explicit covered months based on the Payment Date + Historical Fee
-              let monthsToCover = Math.floor(p.amount / historicalFee);
-              let coveredMonths = [];
-              
-              if (monthsToCover >= 1) {
-                  let tempDate = new Date(p.date + 'T00:00:00'); 
-                  for (let i = 0; i < monthsToCover; i++) {
-                      coveredMonths.push(tempDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
-                      tempDate.setMonth(tempDate.getMonth() + 1);
-                  }
-              } else {
-                  coveredMonths.push("Partial Payment");
-              }
-              
-              p.coverageText = coveredMonths.join(", ");
           });
       }
       // --- END DATA PATCH ---
@@ -4692,6 +4672,7 @@ function init(){
       a.nextDue = computeNextDue(lastPayDate, FIXED_BILLING_DAY);
   });
   saveAccounts();
+
 
 
   
