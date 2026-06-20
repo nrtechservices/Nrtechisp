@@ -3513,29 +3513,16 @@ function applyPaymentToAccount(acc, payment){
     
     // 1. SNAPSHOT: Lock in the exact plan details at the time of payment
     payment.planFeeAtTime = parseFloat(acc.plan.fee);
-    payment.planNameAtTime = acc.plan.name; // Preserves plan name even if changed later
+    payment.planNameAtTime = acc.plan.name;
     
-    // 2. CALCULATE EXPLICIT MONTHS: Based on the account's current Next Due
-    let currentNextDue = new Date(acc.nextDue || computeNextDue(null, acc.billingDay));
-    let monthsToCover = Math.floor(payment.amount / payment.planFeeAtTime);
-    let coveredMonths = [];
-    
-    if (monthsToCover >= 1) {
-        let tempDate = new Date(currentNextDue);
-        for (let i = 0; i < monthsToCover; i++) {
-            // Extracts exact month and year (e.g., "May 2026")
-            coveredMonths.push(tempDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
-            tempDate.setMonth(tempDate.getMonth() + 1);
-        }
-    } else {
-        coveredMonths.push("Partial Payment");
-    }
-    
-    payment.coverageText = coveredMonths.join(", ");
+    // 2. CALCULATE EXPLICIT MONTHS based on the PAYMENT DATE
+    // If billingMonth is provided (QuickPay), use it. Otherwise, use the date of the payment.
+    let baseDateForCoverage = payment.billingMonth ? (payment.billingMonth + "-01") : payment.date;
+    payment.coverageText = calculateMonthsCovered(baseDateForCoverage, payment.amount, payment.planFeeAtTime);
     
     // 3. APPLY AND SAVE
     acc.payments.push(payment);
-    recomputePointsAndBalance(acc); // This automatically respects historical plan fees
+    recomputePointsAndBalance(acc); 
     
     // Safety fallback for Next Due
     if(!acc.nextDue) acc.nextDue = computeNextDue(payment.date, FIXED_BILLING_DAY);
@@ -4354,23 +4341,22 @@ function createAndSendMessengerInvoice(isReminder = false) {
    HELPER: CALCULATE COVERAGE STRING
    ========================= */
 function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
-    if (!amountPaid || amountPaid <= 0 || !monthlyFee || monthlyFee <= 0) return "N/A";
+    if (!amountPaid || amountPaid <= 0 || !monthlyFee || monthlyFee <= 0) return "Partial Payment";
     
-    // How many full months does this payment cover?
     const monthsCount = Math.floor(amountPaid / monthlyFee);
-    
     if (monthsCount < 1) return "Partial Payment"; 
 
-    let dateCursor = new Date(startDateIso);
-    let monthNames = [];
+    // Force the date to be interpreted correctly without timezone shifts
+    let dateParts = startDateIso.split('-');
+    // Use the payment year and month. Default to the 1st of the month for clean addition.
+    let dateCursor = new Date(dateParts[0], dateParts[1] - 1, 1); 
     
-    // Formatting options (e.g., "Oct 2025")
+    let monthNames = [];
     const opts = { month: 'short', year: 'numeric' };
 
     for (let i = 0; i < monthsCount; i++) {
         monthNames.push(dateCursor.toLocaleDateString('en-US', opts));
-        // Move to next month
-        dateCursor.setMonth(dateCursor.getMonth() + 1);
+        dateCursor.setMonth(dateCursor.getMonth() + 1); // Move forward 1 month per cycle
     }
     
     return monthNames.join(", ");
@@ -4619,69 +4605,44 @@ function init(){
   accounts.forEach(a => {
       a.billingDay = FIXED_BILLING_DAY;
       
-      // --- ADVANCED SMART DATA PATCH: Auto-detect Plans & Handle Excess ---
+      // --- ADVANCED SMART DATA PATCH: Auto-detect Plans & Fix Coverage ---
       if (a.payments) {
           a.payments.forEach(p => {
               
-              // Only run this on old records that haven't been locked yet
-              if (!p.isHistoricallyFixed) {
-                  let amountPaid = Number(p.amount);
-                  let detectedFee = parseFloat(a.plan.fee); // Default to current plan
-                  let detectedName = a.plan.name;
+              let amountPaid = Number(p.amount);
+              let detectedFee = parseFloat(p.planFeeAtTime || a.plan.fee); 
+              let detectedName = p.planNameAtTime || a.plan.name;
 
-                  // DETECT HISTORICAL PLAN BASED ON EXACT OR ROUNDED PAYMENTS
+              // If the record was never fixed, attempt to detect historical plan
+              if (!p.isHistoricallyFixed) {
                   if (amountPaid === 499 || amountPaid === 500 || amountPaid % 499 === 0) {
                       detectedFee = 499; detectedName = "Basic";
-                  } 
-                  else if (amountPaid === 699 || amountPaid === 700 || amountPaid % 699 === 0) {
+                  } else if (amountPaid === 699 || amountPaid === 700 || amountPaid % 699 === 0) {
                       detectedFee = 699; detectedName = "Family";
-                  } 
-                  else if (amountPaid === 899 || amountPaid === 900 || amountPaid % 899 === 0) {
+                  } else if (amountPaid === 899 || amountPaid === 900 || amountPaid % 899 === 0) {
                       detectedFee = 899; detectedName = "Gamer";
-                  } 
-                  else if (amountPaid === 1099 || amountPaid === 1100 || amountPaid % 1099 === 0) {
+                  } else if (amountPaid === 1099 || amountPaid === 1100 || amountPaid % 1099 === 0) {
                       detectedFee = 1099; detectedName = "Premium";
-                  } 
-                  else if (amountPaid === 1299 || amountPaid === 1300 || amountPaid % 1299 === 0) {
+                  } else if (amountPaid === 1299 || amountPaid === 1300 || amountPaid % 1299 === 0) {
                       detectedFee = 1299; detectedName = "Business";
                   }
-
-                  // Lock in the detected historical plan
+                  
                   p.planFeeAtTime = detectedFee;
                   p.planNameAtTime = detectedName;
-
-                  // Calculate the covered months starting exactly from the old Payment Date
-                  let monthsToCover = Math.floor(amountPaid / detectedFee);
-                  let coveredMonths = [];
-                  
-                  if (monthsToCover >= 1) {
-                      let tempDate = new Date(p.date + 'T00:00:00'); 
-                      for (let i = 0; i < monthsToCover; i++) {
-                          coveredMonths.push(tempDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
-                          tempDate.setMonth(tempDate.getMonth() + 1);
-                      }
-                  } else {
-                      coveredMonths.push("Partial Payment");
-                  }
-                  
-                  p.coverageText = coveredMonths.join(", ");
-                  
-                  // Lock this record permanently!
                   p.isHistoricallyFixed = true; 
               }
+
+              // ALWAYS recalculate coverage text based on the record's date to fix any past errors
+              p.coverageText = calculateMonthsCovered(p.date, amountPaid, detectedFee);
           });
       }
-      // --- END DATA PATCH ---
-
-      // Force a recalculation to accurately generate the ₱1 excess balances based on the historical fees we just locked in!
+      // Force a recalculation of excess balances
       recomputePointsAndBalance(a);
   });
-  saveAccounts();
-
-
   
-
+  saveAccounts();
   renderAccounts();
+  
   const today = new Date().toISOString().slice(0,10);
   document.getElementById('quickDate').value = today;
 
@@ -4692,12 +4653,13 @@ function init(){
       }
   }
 
-  renderPaymentAnalysis();  updatePendingClientsCount(); // Update counter on load  
-updatePendingUpgradesCount(); // Update counter on load
-
-  
+  renderPaymentAnalysis();  
+  updatePendingClientsCount(); 
+  updatePendingUpgradesCount(); 
+  renderDashboardWidgets(); 
   resetAutoLogoutTimer();
 }
+
 
 
 // Check login state on load
