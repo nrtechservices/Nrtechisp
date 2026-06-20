@@ -4651,10 +4651,40 @@ setInterval(updateClock, 1000); updateClock();
 function init(){
   accounts.forEach(a => {
       a.billingDay = FIXED_BILLING_DAY;
+      
+      // --- DATA PATCH: Retroactively update existing old payments ---
+      if (a.payments) {
+          a.payments.forEach(p => {
+              // 1. If old payments don't have the plan locked in, use the current one
+              if (!p.planFeeAtTime) p.planFeeAtTime = a.plan.fee;
+              if (!p.planNameAtTime) p.planNameAtTime = a.plan.name;
+              
+              // 2. Force re-calculate the explicit covered months based on the Payment Date
+              let monthsToCover = Math.floor(p.amount / p.planFeeAtTime);
+              let coveredMonths = [];
+              
+              if (monthsToCover >= 1) {
+                  // Lock to the exact date the payment was recorded
+                  let tempDate = new Date(p.date + 'T00:00:00'); 
+                  for (let i = 0; i < monthsToCover; i++) {
+                      coveredMonths.push(tempDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
+                      tempDate.setMonth(tempDate.getMonth() + 1);
+                  }
+              } else {
+                  coveredMonths.push("Partial Payment");
+              }
+              
+              // 3. Save it to the old payment record
+              p.coverageText = coveredMonths.join(", ");
+          });
+      }
+      // --- END DATA PATCH ---
+
       const lastPayDate = a.payments.length>0 ? a.payments[a.payments.length-1].date : null;
       a.nextDue = computeNextDue(lastPayDate, FIXED_BILLING_DAY);
   });
-  saveAccounts();
+  saveAccounts(); // Saves the retroactively fixed old records back to storage permanently
+
   
 
   renderAccounts();
