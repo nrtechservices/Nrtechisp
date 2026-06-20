@@ -4619,37 +4619,42 @@ function init(){
   accounts.forEach(a => {
       a.billingDay = FIXED_BILLING_DAY;
       
-      // --- SMART DATA PATCH: Fix Old Records Based on Payment Amount ---
+      // --- ADVANCED SMART DATA PATCH: Auto-detect Plans & Handle Excess ---
       if (a.payments) {
           a.payments.forEach(p => {
               
-              // Only run this fix on old records that haven't been permanently fixed yet
+              // Only run this on old records that haven't been locked yet
               if (!p.isHistoricallyFixed) {
-                  
                   let amountPaid = Number(p.amount);
-                  
-                  // 1. Auto-detect the historical plan based on the AMOUNT they actually paid
-                  if (amountPaid % 1099 === 0 || amountPaid === 1099) {
-                      p.planNameAtTime = "PREMIUM";
-                      p.planFeeAtTime = 1099;
+                  let detectedFee = parseFloat(a.plan.fee); // Default to current plan
+                  let detectedName = a.plan.name;
+
+                  // DETECT HISTORICAL PLAN BASED ON EXACT OR ROUNDED PAYMENTS
+                  if (amountPaid === 499 || amountPaid === 500 || amountPaid % 499 === 0) {
+                      detectedFee = 499; detectedName = "Basic";
                   } 
-                  else if (amountPaid % 899 === 0 || amountPaid === 899) {
-                      p.planNameAtTime = "GAMER";
-                      p.planFeeAtTime = 899;
+                  else if (amountPaid === 699 || amountPaid === 700 || amountPaid % 699 === 0) {
+                      detectedFee = 699; detectedName = "Family";
+                  } 
+                  else if (amountPaid === 899 || amountPaid === 900 || amountPaid % 899 === 0) {
+                      detectedFee = 899; detectedName = "Gamer";
+                  } 
+                  else if (amountPaid === 1099 || amountPaid === 1100 || amountPaid % 1099 === 0) {
+                      detectedFee = 1099; detectedName = "Premium";
+                  } 
+                  else if (amountPaid === 1299 || amountPaid === 1300 || amountPaid % 1299 === 0) {
+                      detectedFee = 1299; detectedName = "Business";
                   }
-                  // (You can add more plan prices here if you have others!)
-                  else {
-                      // Fallback if the amount doesn't match standard plans
-                      p.planNameAtTime = a.plan.name;
-                      p.planFeeAtTime = parseFloat(a.plan.fee);
-                  }
-                  
-                  // 2. Calculate the covered months starting from the exact Date of the record
-                  let monthsToCover = Math.floor(amountPaid / p.planFeeAtTime);
+
+                  // Lock in the detected historical plan
+                  p.planFeeAtTime = detectedFee;
+                  p.planNameAtTime = detectedName;
+
+                  // Calculate the covered months starting exactly from the old Payment Date
+                  let monthsToCover = Math.floor(amountPaid / detectedFee);
                   let coveredMonths = [];
                   
                   if (monthsToCover >= 1) {
-                      // Locks to the exact date the old payment was recorded
                       let tempDate = new Date(p.date + 'T00:00:00'); 
                       for (let i = 0; i < monthsToCover; i++) {
                           coveredMonths.push(tempDate.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }));
@@ -4661,18 +4666,17 @@ function init(){
                   
                   p.coverageText = coveredMonths.join(", ");
                   
-                  // 3. Lock this record! Future new payments won't be altered by this patch.
+                  // Lock this record permanently!
                   p.isHistoricallyFixed = true; 
               }
           });
       }
       // --- END DATA PATCH ---
 
-      const lastPayDate = a.payments.length>0 ? a.payments[a.payments.length-1].date : null;
-      a.nextDue = computeNextDue(lastPayDate, FIXED_BILLING_DAY);
+      // Force a recalculation to accurately generate the ₱1 excess balances based on the historical fees we just locked in!
+      recomputePointsAndBalance(a);
   });
   saveAccounts();
-
 
 
   
