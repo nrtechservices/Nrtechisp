@@ -1620,7 +1620,11 @@
           <label style="margin-top:8px" class="muted">Messenger ID</label><div id="accMessengerId" class="muted"></div>
         </div>
         <div>
-          <label class="muted">Plan</label><div id="accPlan" style="font-weight:700; color: var(--accent-2);"></div>
+          <label class="muted">Plan</label>
+<div style="display:flex; justify-content:space-between; align-items:center;">
+    <div id="accPlan" style="font-weight:700; color: var(--accent-2);"></div>
+    <button id="btnChangePlan" class="small ghost no-print" style="padding: 2px 6px; font-size: 11px;">🔄 Change Plan</button>
+</div>
           <label style="margin-top:8px" class="muted">Monthly Fee</label><div id="accFee"></div>
           <label style="margin-top:8px" class="muted">Speed</label><div id="accSpeed"></div>
           <label style="margin-top:8px" class="muted">Billing Day</label><div id="accBilling"></div>
@@ -1981,6 +1985,9 @@
 
 <hr style="margin:20px 0; border-color: var(--border);">
 <h4 style="color: var(--accent); margin-top: 0;">💾 System Backup & Recovery</h4>
+<button id="btnConnectJson" style="background: #2196F3; color: white; width: 100%; margin-bottom: 10px;">
+    🔗 Connect Live to data.json
+</button>
 
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
     <button id="btnBackupCSV" style="background: var(--accent-2); color: white;">
@@ -2055,6 +2062,24 @@
     </div>
   </div>
 </div>
+
+<div class="modal-backdrop" id="modalChangePlanBackdrop">
+    <div class="modal" style="width: min(95%, 350px);">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+            <h3 style="color: var(--accent-2);">Upgrade / Downgrade Plan</h3>
+            <button id="closeChangePlan" class="no-print ghost small">Close</button>
+        </div>
+        <div style="margin-top:10px;">
+            <p class="muted" style="font-size:12px;">Changing the plan here will automatically lock all past payments to the old fee, ensuring the lacking/excess balance is not affected.</p>
+            
+            <label class="muted">Select New Plan</label>
+            <select id="newPlanSelect"></select>
+            
+            <button id="btnConfirmPlanChange" style="width: 100%; margin-top: 15px;">Confirm Change</button>
+        </div>
+    </div>
+</div>
+
 
 <div id="printArea" class="hidden">
   <div class="invoice-container" id="invoiceContent"></div>
@@ -2809,9 +2834,20 @@ function loadAccounts(){
       localStorage.removeItem(STORAGE_KEY);
       return loadAccounts();
   }
+function saveAccounts(){ 
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts)); 
+    
+    // Trigger direct save if the handle exists
+    if (jsonFileHandle) {
+        syncToDataJson();
+    }
+}
 
 }
 function saveAccounts(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(accounts)); }
+
+    
+
 
 function computeNextDue(lastPaymentDateIso, billingDay=FIXED_BILLING_DAY){
     const day = FIXED_BILLING_DAY;
@@ -3463,27 +3499,46 @@ document.getElementById('btnCancelEdit').onclick = ()=>{
 };
 document.getElementById('btnSaveAccount').onclick = ()=>{
   const a = accounts[activeAccountIndex];
+  
+  // Check if plan is being changed via Edit Modal
+  const oldPlanVal = `${a.plan.name}|${a.plan.fee}|${a.plan.speed}`;
+  const newPlanVal = document.getElementById('editPlan').value;
+  
+  if (oldPlanVal !== newPlanVal) {
+      // Lock old payments before applying new plan
+      a.payments.forEach(p => {
+          if (!p.planFeeAtTime) {
+              p.planFeeAtTime = parseFloat(a.plan.fee);
+              p.planNameAtTime = a.plan.name;
+              p.isHistoricallyFixed = true;
+          }
+      });
+  }
+
+  // Update details
   a.name = document.getElementById('editName').value;
   a.address = document.getElementById('editAddress').value;
   a.contact = document.getElementById('editContact').value;
   a.messengerId = document.getElementById('editMessengerId').value.trim();
-  const v = document.getElementById('editPlan').value.split('|');
+  const v = newPlanVal.split('|');
   a.plan = {name:v[0], fee:Number(v[1]), speed:v[2]};
   a.billingDay = FIXED_BILLING_DAY;
   document.getElementById('editBillingDay').value = FIXED_BILLING_DAY;
   a.status = document.getElementById('editStatus').value;
   a.pppoeUsername = document.getElementById('editPPUser').value;
   a.pppoePassword = document.getElementById('editPPPass').value;
-  
-  // --- NEW ---
   a.clientUsername = document.getElementById('editClientUsername').value.trim();
   a.clientPassword = document.getElementById('editClientPassword').value;
-  // --- END NEW ---
 
   const lastPayDate = a.payments.length>0 ? a.payments[a.payments.length-1].date : null;
   a.nextDue = computeNextDue(lastPayDate, a.billingDay);
-  saveAccounts(); showToast('Account updated successfully.', 'success'); renderAccounts(); openAccount(activeAccountIndex);
+  
+  saveAccounts(); 
+  showToast('Account updated successfully.', 'success'); 
+  renderAccounts(); 
+  openAccount(activeAccountIndex);
 };
+
 
 
 // --- PAYMENT ACTIONS ---
@@ -4343,13 +4398,13 @@ function createAndSendMessengerInvoice(isReminder = false) {
 function calculateMonthsCovered(startDateIso, amountPaid, monthlyFee) {
     if (!amountPaid || amountPaid <= 0 || !monthlyFee || monthlyFee <= 0) return "Partial Payment";
     
+    // How many full months does this payment cover?
     const monthsCount = Math.floor(amountPaid / monthlyFee);
     if (monthsCount < 1) return "Partial Payment"; 
 
-    // Force the date to be interpreted correctly without timezone shifts
+    // Force exact date parsing based on the payment date
     let dateParts = startDateIso.split('-');
-    // Use the payment year and month. Default to the 1st of the month for clean addition.
-    let dateCursor = new Date(dateParts[0], dateParts[1] - 1, 1); 
+    let dateCursor = new Date(dateParts[0], dateParts[1] - 1, dateParts[2] || 1); 
     
     let monthNames = [];
     const opts = { month: 'short', year: 'numeric' };
@@ -6332,6 +6387,101 @@ document.getElementById('btnDirectThermal').onclick = () => {
     printWindow.document.close(); // Finishes writing
 };
 
+// --- CHANGE PLAN MODAL LOGIC ---
+document.getElementById('btnChangePlan').onclick = () => {
+    const acc = accounts[activeAccountIndex];
+    const select = document.getElementById('newPlanSelect');
+    select.innerHTML = ''; 
+    
+    // Populate the dropdown with available system plans
+    systemPlans.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = `${p.name}|${p.fee}|${p.speed}`;
+        opt.textContent = `${p.name} (₱${p.fee})`;
+        if (p.name === acc.plan.name) opt.selected = true;
+        select.appendChild(opt);
+    });
+    
+    document.getElementById('modalChangePlanBackdrop').style.display = 'flex';
+};
+
+document.getElementById('closeChangePlan').onclick = () => {
+    document.getElementById('modalChangePlanBackdrop').style.display = 'none';
+};
+
+document.getElementById('btnConfirmPlanChange').onclick = () => {
+    const acc = accounts[activeAccountIndex];
+    const [pname, pfee, pspeed] = document.getElementById('newPlanSelect').value.split('|');
+
+    // CRITICAL FIX: Lock all previous payments to the OLD plan fee to protect balances
+    acc.payments.forEach(p => {
+        if (!p.planFeeAtTime) {
+            p.planFeeAtTime = parseFloat(acc.plan.fee);
+            p.planNameAtTime = acc.plan.name;
+            p.isHistoricallyFixed = true;
+        }
+    });
+
+    // Apply the new plan moving forward
+    acc.plan = { name: pname, fee: Number(pfee), speed: pspeed };
+
+    // Add a system note to the account for record-keeping
+    if(!acc.charges) acc.charges = []; // Ensure array exists
+    acc.charges.push({
+        date: new Date().toISOString().slice(0,10),
+        note: `Plan Changed to ${pname}`,
+        amount: 0,
+        category: 'note'
+    });
+
+    // Save and refresh the UI
+    recomputePointsAndBalance(acc);
+    saveAccounts();
+    renderAccounts();
+    openAccount(activeAccountIndex);
+    
+    document.getElementById('modalChangePlanBackdrop').style.display = 'none';
+    showToast(`Plan successfully changed to ${pname}! Historical balances protected.`, 'success');
+};
+
+
+let jsonFileHandle = null;
+
+async function syncToDataJson() {
+    // This only works on Chromium-based browsers (Chrome, Edge, Brave, Opera)
+    if (!window.showSaveFilePicker) return; 
+
+    try {
+        if (!jsonFileHandle) {
+            // First time saving: Ask user where to put data.json
+            jsonFileHandle = await window.showSaveFilePicker({
+                suggestedName: 'data.json',
+                types: [{ description: 'JSON Database', accept: {'application/json': ['.json']} }]
+            });
+        }
+        
+        // Create full backup object
+        const fullSystemData = {
+            timestamp: new Date().toISOString(),
+            accounts: accounts,
+            settings: { plans: systemPlans, notifications: adminNotifications }
+        };
+
+        // Write directly to the file
+        const writable = await jsonFileHandle.createWritable();
+        await writable.write(JSON.stringify(fullSystemData, null, 2));
+        await writable.close();
+        
+    } catch (err) {
+        console.warn("Direct JSON save cancelled or failed:", err);
+    }
+}
+
+document.getElementById('btnConnectJson').onclick = () => {
+    syncToDataJson().then(() => {
+        if(jsonFileHandle) showToast('Successfully connected! System will now auto-save to data.json', 'success');
+    });
+};
 
 
 </script>
