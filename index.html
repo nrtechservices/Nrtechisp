@@ -1984,7 +1984,7 @@
 
 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px;">
     <button id="btnBackupCSV" style="background: var(--accent-2); color: white;">
-        ⬇️ Backup (nrtechfile.csv)
+        ⬇️ Backup (data.json)
     </button>
     
     <button id="btnRecoverCSV" class="ghost" style="border-color: var(--accent-2); color: var(--accent-2);">
@@ -1992,7 +1992,8 @@
     </button>
 </div>
 
-<input type="file" id="fileRecoverInput" accept=".csv" style="display:none">
+<input type="file" id="fileRecoverInput" accept=".json" style="display:none">
+
 
 <hr style="margin:20px 0; border-color: var(--border);">
 
@@ -2312,10 +2313,7 @@ const PENDING_UPGRADES_KEY = 'nrtech_pending_upgrades_v3';
 // THIS WAS THE CAUSE OF THE ERROR:
 let isClientLoginMode = false; 
 
-let pendingClients = JSON.parse(localStorage.getItem(PENDING_CLIENTS_KEY)) || [];
-let pendingPayments = JSON.parse(localStorage.getItem(PENDING_PAYMENTS_KEY)) || [];
-let pendingUpgrades = JSON.parse(localStorage.getItem(PENDING_UPGRADES_KEY)) || [];
-let activeClientAccount = null;
+
 
 function saveSystemPlans() {
     localStorage.setItem(PLANS_KEY, JSON.stringify(systemPlans));
@@ -3073,19 +3071,18 @@ function recomputePointsAndBalance(acc){
   // Sort payments by date
   const sortedPayments = [...acc.payments].sort((a, b) => new Date(a.date) - new Date(b.date));
 
-  const planFee = parseFloat(acc.plan.fee);
+    let runningBalance = -totalDebts; // Start with debts deducted
 
   sortedPayments.forEach(p => {
       const amt = parseFloat(p.amount || 0);
-      totalPaid += amt;
-      runningWallet += amt;
+      runningBalance += amt;
       
       const d = new Date(p.date + 'T00:00:00').getDate();
+      // Look back at what the plan fee was THEN, default to current if old data
+      const historicalFee = parseFloat(p.planFeeAtTime || acc.plan.fee);
 
-      // Fix: Ensure runningWallet is treated as a float with 2 decimal precision for comparison
-      // to avoid infinite loops or missing amounts due to 0.0000001 differences
-      while(parseFloat(runningWallet.toFixed(2)) >= planFee) {
-          runningWallet -= planFee;
+      while(parseFloat(runningBalance.toFixed(2)) >= historicalFee) {
+          runningBalance -= historicalFee;
 
           // Award Point
           if(d <= 19) {
@@ -3099,32 +3096,20 @@ function recomputePointsAndBalance(acc){
   });
 
   // 3. Calculate Balance
-  // Fix: Use Math.round to handle floating point errors for currency
-  let netCash = totalPaid - totalDebts;
-  let monthsFullyPaid = Math.floor(netCash / planFee);
-  
-  // Calculate Remainder safely
-  let rawRemainder = netCash % planFee;
-  
-  // Fix: Handle JavaScript negative modulo bug and precision
-  if (netCash < 0) {
-      // If negative, the whole amount is the balance
-      acc.excessLackingBalance = parseFloat(netCash.toFixed(2)); 
-  } else {
-      // If positive, force 2 decimal places
-      acc.excessLackingBalance = parseFloat(rawRemainder.toFixed(2)); 
-  }
+  // Because we properly deducted historical fees in the loop above, 
+  // whatever is left in runningBalance is their exact excess (or lack)
+  acc.excessLackingBalance = parseFloat(runningBalance.toFixed(2));
 
-  // Determine Next Due Date logic (Keep existing logic)
+  // Determine Next Due Date logic
   const billingDay = acc.billingDay || 20;
   
   if(sortedPayments.length > 0) {
       const lastPay = sortedPayments[sortedPayments.length-1];
       const pDate = new Date(lastPay.date);
+      const lastHistoricalFee = parseFloat(lastPay.planFeeAtTime || acc.plan.fee);
       
-      if(parseFloat(lastPay.amount) >= planFee) {
-         // If last payment was a full month, push date
-         const covered = Math.floor(parseFloat(lastPay.amount)/planFee);
+      if(parseFloat(lastPay.amount) >= lastHistoricalFee) {
+         const covered = Math.floor(parseFloat(lastPay.amount)/lastHistoricalFee);
          pDate.setMonth(pDate.getMonth() + covered);
       } else {
          pDate.setMonth(pDate.getMonth() + 1);
@@ -3132,7 +3117,6 @@ function recomputePointsAndBalance(acc){
       pDate.setDate(billingDay);
       acc.nextDue = pDate.toISOString().slice(0,10);
   } else {
-      // Default fallback
       acc.nextDue = computeNextDue(null, billingDay);
   }
 }
@@ -3401,8 +3385,14 @@ function openAccount(idx){
         <td>${t.ref || ''}</td> <td class="${t.type === 'charge' ? 'text-danger' : 'text-success'}" style="font-weight:700">
             ${t.type === 'payment' ? 'Payment' : t.type.charAt(0).toUpperCase() + t.type.slice(1)}
         </td>
-        <td>${t.note || ''}</td>
+                <td>
+            ${t.note || ''}
+            <div style="font-size:10px; color:var(--accent-2); font-weight: 600;">
+                ${t.obj && t.obj.coverage ? t.obj.coverage : ''}
+            </div>
+        </td>
         <td style="text-align:right">₱${Number(t.amount).toFixed(2)}</td>
+
         <td class="no-print" style="display:flex; gap:5px;">
           ${t.type === 'payment' ? `
           <button class="small ghost" style="color:var(--accent); border-color:var(--accent);" 
@@ -3515,6 +3505,11 @@ document.getElementById('savePay').onclick = ()=>{
 function applyPaymentToAccount(acc, payment){
     payment.amount = Number(payment.amount || 0);
     payment.referenceNumber = generateRefNumber(acc.accountNumber, payment.date);
+    
+    // SNAPSHOT: Save the current plan fee and explicitly log the months covered
+    payment.planFeeAtTime = parseFloat(acc.plan.fee);
+    payment.coverage = calculateMonthsCovered(payment.date, payment.amount, acc.plan.fee);
+    
     acc.payments.push(payment);
 
     recomputePointsAndBalance(acc);
@@ -3744,10 +3739,8 @@ document.getElementById('btnExport').onclick = () => {
     const jsonStr = JSON.stringify(data, null, 2);
     const blob = new Blob([jsonStr], { type: 'application/json' });
     
-    // 3. Generate Filename with Date
-    const date = new Date();
-    const dateString = `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2,'0')}-${date.getDate()}`;
-    const fileName = `NRTECH_BACKUP_${dateString}.json`;
+    //     // 3. Generate Filename
+    const fileName = `data.json`;
 
     // 4. Trigger Direct Download
     const url = URL.createObjectURL(blob);
@@ -4708,11 +4701,7 @@ function updatePendingUpgradesCount() {
     if(el) el.textContent = count;
 }
 
-function updatePendingClientsCount() {
-    const count = pendingClients ? pendingClients.length : 0;
-    const el = document.getElementById('pendingClientsCount');
-    if(el) el.textContent = count;
-}
+
 
 
 function approveUpgrade(idx) {
@@ -4751,9 +4740,6 @@ function rejectUpgrade(idx) {
 function savePendingPayments() {
     localStorage.setItem(PENDING_PAYMENTS_KEY, JSON.stringify(pendingPayments));
     // We can add a counter for this later if needed
-}
-function updatePendingClientsCount() {
-    document.getElementById('pendingClientsCount').textContent = pendingClients.length;
 }
 
 // --- Client Registration Logic ---
@@ -5527,65 +5513,35 @@ async function deleteTransaction(accIdx, type, itemIdx) {
 }
 
 /* =========================================
-   NEW: BACKUP & RECOVER (nrtechfile.csv)
+   NEW: BACKUP & RECOVER (data.json)
    ========================================= */
 
-// 1. BACKUP FUNCTION
+// 1. BACKUP FUNCTION (Pure JSON)
 document.getElementById('btnBackupCSV').onclick = () => {
-    // We strictly define the columns. The last column "SYSTEM_DATA" will hold the complex JSON
-    // so we don't lose payment history, settings, or logs.
-    const headers = [
-        "Account Number", 
-        "Customer Name", 
-        "Plan", 
-        "Status", 
-        "Balance", 
-        "SYSTEM_DATA_DO_NOT_EDIT" // This column stores the full object
-    ];
+    const fullSystemData = {
+        timestamp: new Date().toISOString(),
+        accounts: accounts,
+                settings: {
+            plans: systemPlans,
+            notifications: adminNotifications
+        }
 
-    const rows = [headers];
-
-    // Add Account Rows
-    accounts.forEach(acc => {
-        // We use a safe delimiter approach
-        const row = [
-            acc.accountNumber,
-            acc.name,
-            acc.plan.name,
-            acc.status,
-            acc.excessLackingBalance.toFixed(2),
-            // We encode the full object to Base64 to prevent CSV comma issues
-            btoa(JSON.stringify(acc)) 
-        ];
-        
-        // Escape quotes and join
-        rows.push(row.map(v => `"${String(v).replace(/"/g, '""')}"`).join(","));
-    });
-
-    // Add a special row for System Plans and Settings at the end
-    const settingsObj = {
-        plans: systemPlans,
-        notifications: adminNotifications,
-        pending: pendingClients,
-        upgrades: pendingUpgrades
     };
-    
-    // Add a meta row for settings
-    rows.push(`"SETTINGS_META","DO_NOT_DELETE","","","", "${btoa(JSON.stringify(settingsObj))}"`);
 
-    const csvContent = rows.join("\n");
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const jsonString = JSON.stringify(fullSystemData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
     
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
-    link.setAttribute("download", "nrtechfile.csv");
+    link.setAttribute("download", "data.json");
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     
-    showToast("Backup saved as nrtechfile.csv", "success");
+    showToast("Backup saved as data.json", "success");
 };
+
 
 // 2. RECOVER BUTTON CLICK
 document.getElementById('btnRecoverCSV').onclick = () => {
@@ -5593,78 +5549,41 @@ document.getElementById('btnRecoverCSV').onclick = () => {
     document.getElementById('fileRecoverInput').click();
 };
 
-// 3. RECOVER FILE PROCESSING
+// 3. RECOVER FILE PROCESSING (Pure JSON)
 document.getElementById('fileRecoverInput').onchange = (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
-    if (file.name !== 'nrtechfile.csv' && !confirm("The file name is not 'nrtechfile.csv'. Are you sure this is the correct backup file?")) {
+    if (file.name !== 'data.json' && !confirm("The file name is not 'data.json'. Are you sure this is the correct backup file?")) {
         return; // Safety check
     }
 
     const reader = new FileReader();
     reader.onload = async function(e) {
-        const text = e.target.result;
-        
         try {
-            const lines = text.split('\n');
-            const newAccounts = [];
-            let restoredSettings = false;
+            const dataObj = JSON.parse(e.target.result);
 
-            // Start loop (Skip header row 0)
-            for (let i = 1; i < lines.length; i++) {
-                const line = lines[i].trim();
-                if (!line) continue;
-
-                // Simple regex to grab the last column (The Base64 Blob)
-                // We assume the Base64 blob is the last quoted item
-                const lastQuoteIndex = line.lastIndexOf('"');
-                if (lastQuoteIndex === -1) continue;
-                
-                // Find the opening quote of the last column
-                // The format is "..., "BASE64_STRING"
-                const secondToLastQuote = line.lastIndexOf('"', lastQuoteIndex - 1);
-                
-                if (secondToLastQuote > -1) {
-                    const base64Data = line.substring(secondToLastQuote + 1, lastQuoteIndex);
-                    
-                    // Decode
-                    try {
-                        const decodedStr = atob(base64Data);
-                        const dataObj = JSON.parse(decodedStr);
-
-                        // Check if it's an Account or the Settings Meta row
-                        if (line.startsWith('"SETTINGS_META"')) {
-                            // Restore Settings
-                            if(dataObj.plans) systemPlans = dataObj.plans;
-                            if(dataObj.notifications) adminNotifications = dataObj.notifications;
-                            if(dataObj.pending) pendingClients = dataObj.pending;
-                            if(dataObj.upgrades) pendingUpgrades = dataObj.upgrades;
-                            
-                            saveSystemPlans();
-                            localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(adminNotifications));
-                            savePendingClients();
-                            savePendingUpgrades();
-                            restoredSettings = true;
-                        } else {
-                            // It's an account
-                            newAccounts.push(dataObj);
-                        }
-                    } catch (err) {
-                        console.error("Error parsing row " + i, err);
-                    }
-                }
-            }
-
-            if (newAccounts.length > 0) {
+            if (dataObj.accounts && Array.isArray(dataObj.accounts)) {
                 const confirmRestore = await customConfirm(
-                    `Found ${newAccounts.length} accounts and system settings.\nThis will OVERWRITE current data. Proceed?`, 
+                    `Found ${dataObj.accounts.length} accounts and system settings.\nThis will OVERWRITE current data. Proceed?`, 
                     "⚠️ Restore Backup"
                 );
 
                 if (confirmRestore) {
-                    accounts = newAccounts;
+                    // Restore Accounts
+                    accounts = dataObj.accounts;
                     saveAccounts();
+
+                    // Restore Settings if they exist
+                    if (dataObj.settings) {
+                                                if(dataObj.settings.plans) systemPlans = dataObj.settings.plans;
+                        if(dataObj.settings.notifications) adminNotifications = dataObj.settings.notifications;
+                        
+                        saveSystemPlans();
+                        localStorage.setItem(NOTIFICATIONS_STORAGE_KEY, JSON.stringify(adminNotifications));
+
+                    }
+
                     renderAccounts();
                     showToast("System Restored Successfully!", "success");
                     document.getElementById('modalSettingsBackdrop').style.display = 'none';
@@ -5673,16 +5592,15 @@ document.getElementById('fileRecoverInput').onchange = (event) => {
             } else {
                 showToast("No valid data found in file.", "error");
             }
-
         } catch (err) {
             console.error(err);
-            showToast("Error reading file. Format invalid.", "error");
+            showToast("Error reading file. Ensure it is a valid JSON.", "error");
         }
     };
     reader.readAsText(file);
-    // Reset input so we can select same file again if needed
     document.getElementById('fileRecoverInput').value = ''; 
 };
+
 
 function toggleQuickRef() {
     const method = document.getElementById('quickMethod').value;
@@ -6040,9 +5958,7 @@ function init(){
   
   renderPaymentAnalysis();  
   
-  updatePendingClientsCount(); 
-  updatePendingUpgradesCount();
-  resetAutoLogoutTimer();
+  
 }
 
 /* =========================
