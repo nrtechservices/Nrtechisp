@@ -1637,9 +1637,9 @@
         <h4 style="color: var(--accent); margin-top: 0;">🎟️ Clients Points to Raffle Ticket Converter (CSV)</h4>
         <div style="background: #fdf9f2; padding: 12px; border-radius: 10px; border: 1px solid rgba(212, 154, 55, 0.45); margin-bottom: 16px;">
             <div class="muted" style="font-size:12px;margin-bottom:8px;">
-                • <strong>1 Gold Ticket</strong> = 1 Advance point (1st–19th)
-                <br>• <strong>1 Silver Ticket</strong> = 1 On-time point (20th)
-                <br>• <strong>1 Bronze Ticket</strong> = 1 per payment not marked as Advance or On-time
+                • <strong>1 Gold Ticket</strong> = 1 Advance point (1st–19th) → Ticket # e.g. <code>GLD-C0001A-001</code>
+                <br>• <strong>1 Silver Ticket</strong> = 1 On-time point (20th) → Ticket # e.g. <code>SLV-C0001A-001</code>
+                <br>• <strong>1 Bronze Ticket</strong> = 1 per payment not marked as Advance or On-time → Ticket # e.g. <code>BRZ-C0001A-001</code>
                 <br>• <strong>Terminated</strong> accounts do <strong>not</strong> receive raffle tickets.
             </div>
             <div id="raffleSummaryPreview" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:10px;text-align:center;">
@@ -2020,16 +2020,25 @@ document.getElementById('btnSavePlans').onclick = () => {
 };
 
 /* =========================
-   RAFFLE TICKET CONVERTER (CSV)
+   RAFFLE TICKET CONVERTER (WITH INDIVIDUAL TICKET NUMBERS PER CLIENT)
    ========================= */
-function getClientRaffleBreakdown(acc) {
+function extractClientShortCode(acc, fallbackIndex = 0) {
+    const raw = String(acc.accountNumber || '').toUpperCase();
+    const match = raw.match(/(C\d{4}[A-Z]?)/);
+    if (match) return match[1];
+    const cleaned = raw.replace(/[^A-Z0-9]/g, '');
+    return cleaned ? cleaned.slice(-6) : `C${String(fallbackIndex + 1).padStart(4, '0')}`;
+}
+
+function getClientRaffleBreakdown(acc, fallbackIndex = 0) {
     recomputePointsAndBalance(acc);
     if (acc.status === 'Terminated') {
         return {
             goldTickets: 0,
             silverTickets: 0,
             bronzeTickets: 0,
-            totalTickets: 0
+            totalTickets: 0,
+            tickets: []
         };
     }
 
@@ -2055,11 +2064,40 @@ function getClientRaffleBreakdown(acc) {
     const bronzeTickets = Math.max(0, nonAdvOnTimePayments);
     const totalTickets = goldTickets + silverTickets + bronzeTickets;
 
+    const shortCode = extractClientShortCode(acc, fallbackIndex);
+    const tickets = [];
+
+    for (let i = 1; i <= goldTickets; i++) {
+        tickets.push({
+            ticketNumber: `GLD-${shortCode}-${String(i).padStart(3, '0')}`,
+            tier: 'Gold',
+            clientName: acc.name,
+            accountNumber: acc.accountNumber
+        });
+    }
+    for (let i = 1; i <= silverTickets; i++) {
+        tickets.push({
+            ticketNumber: `SLV-${shortCode}-${String(i).padStart(3, '0')}`,
+            tier: 'Silver',
+            clientName: acc.name,
+            accountNumber: acc.accountNumber
+        });
+    }
+    for (let i = 1; i <= bronzeTickets; i++) {
+        tickets.push({
+            ticketNumber: `BRZ-${shortCode}-${String(i).padStart(3, '0')}`,
+            tier: 'Bronze',
+            clientName: acc.name,
+            accountNumber: acc.accountNumber
+        });
+    }
+
     return {
         goldTickets,
         silverTickets,
         bronzeTickets,
-        totalTickets
+        totalTickets,
+        tickets
     };
 }
 
@@ -2068,8 +2106,8 @@ function updateRafflePreviewInSettings() {
     let totalSilver = 0;
     let totalBronze = 0;
 
-    accounts.forEach(acc => {
-        const rb = getClientRaffleBreakdown(acc);
+    accounts.forEach((acc, idx) => {
+        const rb = getClientRaffleBreakdown(acc, idx);
         totalGold += rb.goldTickets;
         totalSilver += rb.silverTickets;
         totalBronze += rb.bronzeTickets;
@@ -2085,35 +2123,59 @@ function updateRafflePreviewInSettings() {
 
 document.getElementById('btnExportRaffleCsv').onclick = () => {
     const rows = [[
-        'Client Name',
-        'Gold Tickets',
-        'Silver Tickets',
-        'Bronze Tickets'
+        'Ticket Number',
+        'Ticket Tier',
+        'Account Number',
+        'Client Name'
     ]];
 
     let grandGold = 0;
     let grandSilver = 0;
     let grandBronze = 0;
 
-    accounts.forEach(acc => {
-        const rb = getClientRaffleBreakdown(acc);
+    accounts.forEach((acc, idx) => {
+        const rb = getClientRaffleBreakdown(acc, idx);
         grandGold += rb.goldTickets;
         grandSilver += rb.silverTickets;
         grandBronze += rb.bronzeTickets;
 
+        rb.tickets.forEach(t => {
+            rows.push([
+                t.ticketNumber,
+                t.tier,
+                t.accountNumber,
+                t.clientName
+            ]);
+        });
+    });
+
+    rows.push([]);
+    rows.push(['SUMMARY BY CLIENT', 'Account Number', 'Gold Tickets', 'Silver Tickets', 'Bronze Tickets', 'Total Tickets', 'Ticket Numbers']);
+
+    accounts.forEach((acc, idx) => {
+        const rb = getClientRaffleBreakdown(acc, idx);
+        const ticketListStr = rb.tickets.length > 0
+            ? rb.tickets.map(t => t.ticketNumber).join(' | ')
+            : 'None';
         rows.push([
             acc.name,
+            acc.accountNumber,
             rb.goldTickets,
             rb.silverTickets,
-            rb.bronzeTickets
+            rb.bronzeTickets,
+            rb.totalTickets,
+            ticketListStr
         ]);
     });
 
     rows.push([
-        'TOTAL',
+        'GRAND TOTAL',
+        '',
         grandGold,
         grandSilver,
-        grandBronze
+        grandBronze,
+        grandGold + grandSilver + grandBronze,
+        ''
     ]);
 
     const csv = rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -2129,7 +2191,7 @@ document.getElementById('btnExportRaffleCsv').onclick = () => {
     URL.revokeObjectURL(url);
 
     updateRafflePreviewInSettings();
-    showToast(`Exported raffle tickets CSV (${grandGold + grandSilver + grandBronze} total tickets)!`, 'success');
+    showToast(`Exported ${grandGold + grandSilver + grandBronze} numbered raffle tickets to CSV!`, 'success');
 };
 
 /* =========================
@@ -3899,7 +3961,6 @@ function generateInvoiceHtml(acc, isReminder = false, specificPaymentIndex = nul
     let metaRowsHtml = '';
 
     if (isReminder) {
-        const evalDate = dueDateObj && now < dueDateObj && now.getDate() > 20 ? dueDateObj : now;
         const currentDay = now.getDate();
         const isInPenaltyScope = currentDay > 20 || (dueDateObj && now > dueDateObj && currentDay !== 20);
 
